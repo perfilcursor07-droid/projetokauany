@@ -1,0 +1,253 @@
+// Prisma e usado apenas como ORM/cliente. A fonte da verdade do schema sao
+// os arquivos SQL em /migrations (rode `npm run migrate`).
+// Depois de migrar, rode `npm run prisma:generate` para gerar o client.
+// (Opcional: `npm run prisma:pull` re-sincroniza este arquivo com o banco.)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Business {
+  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  name      String   @db.VarChar(150)
+  logoUrl   String?  @map("logo_url") @db.LongText
+  slug      String   @unique @db.VarChar(120)
+  phone     String?  @db.VarChar(30)
+  timezone  String   @default("America/Sao_Paulo") @db.VarChar(60)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  users         User[]
+  professionals Professional[]
+  clients       Client[]
+  services      Service[]
+  businessHours BusinessHour[]
+  blockedTimes  BlockedTime[]
+  appointments  Appointment[]
+  payments      Payment[]
+
+  @@map("businesses")
+}
+
+model User {
+  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId   BigInt   @map("business_id") @db.UnsignedBigInt
+  name         String   @db.VarChar(150)
+  email        String   @unique @db.VarChar(190)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  role         String   @default("owner")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
+  @@map("users")
+}
+
+model Professional {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId BigInt   @map("business_id") @db.UnsignedBigInt
+  name       String   @db.VarChar(150)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  business     Business      @relation(fields: [businessId], references: [id])
+  appointments Appointment[]
+  blockedTimes BlockedTime[]
+
+  @@index([businessId])
+  @@map("professionals")
+}
+
+model Client {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId  BigInt   @map("business_id") @db.UnsignedBigInt
+  name        String   @db.VarChar(150)
+  phone       String   @db.VarChar(30)
+  email       String?  @db.VarChar(190)
+  notes       String?  @db.Text
+  noShowCount Int      @default(0) @map("no_show_count")
+  cancelCount Int      @default(0) @map("cancel_count")
+  createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  business     Business      @relation(fields: [businessId], references: [id])
+  appointments Appointment[]
+
+  @@index([businessId, phone])
+  @@map("clients")
+}
+
+model Service {
+  id              BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId      BigInt   @map("business_id") @db.UnsignedBigInt
+  name            String   @db.VarChar(150)
+  description     String?  @db.Text
+  price           Decimal  @db.Decimal(10, 2)
+  depositType     String   @default("none") @map("deposit_type")
+  depositValue    Decimal  @default(0) @map("deposit_value") @db.Decimal(10, 2)
+  durationMinutes Int      @map("duration_minutes")
+  bufferMinutes   Int      @default(0) @map("buffer_minutes")
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  business     Business      @relation(fields: [businessId], references: [id])
+  appointments Appointment[]
+
+  @@index([businessId, active])
+  @@map("services")
+}
+
+model BusinessHour {
+  id         BigInt  @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId BigInt  @map("business_id") @db.UnsignedBigInt
+  weekday    Int     @db.UnsignedTinyInt
+  isOpen     Boolean @default(true) @map("is_open")
+  openTime   String  @default("08:00") @map("open_time") @db.VarChar(5)
+  closeTime  String  @default("18:00") @map("close_time") @db.VarChar(5)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, weekday])
+  @@map("business_hours")
+}
+
+model BlockedTime {
+  id             BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId     BigInt   @map("business_id") @db.UnsignedBigInt
+  professionalId BigInt?  @map("professional_id") @db.UnsignedBigInt
+  startAt        DateTime @map("start_at") @db.DateTime(0)
+  endAt          DateTime @map("end_at") @db.DateTime(0)
+  reason         String?  @db.VarChar(255)
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  business     Business      @relation(fields: [businessId], references: [id])
+  professional Professional? @relation(fields: [professionalId], references: [id])
+
+  @@index([businessId, startAt, endAt])
+  @@map("blocked_times")
+}
+
+model Appointment {
+  id             BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId     BigInt   @map("business_id") @db.UnsignedBigInt
+  clientId       BigInt   @map("client_id") @db.UnsignedBigInt
+  professionalId BigInt   @map("professional_id") @db.UnsignedBigInt
+  serviceId      BigInt   @map("service_id") @db.UnsignedBigInt
+  token          String   @unique @db.Char(36)
+  startAt        DateTime @map("start_at") @db.DateTime(0)
+  endAt          DateTime @map("end_at") @db.DateTime(0)
+  totalAmount    Decimal  @map("total_amount") @db.Decimal(10, 2)
+  depositAmount  Decimal  @default(0) @map("deposit_amount") @db.Decimal(10, 2)
+  status         String   @default("pending_payment")
+  paymentStatus  String   @default("pending") @map("payment_status")
+  expiresAt      DateTime? @map("expires_at") @db.DateTime(0)
+  notes          String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  business     Business     @relation(fields: [businessId], references: [id])
+  client       Client       @relation(fields: [clientId], references: [id])
+  professional Professional @relation(fields: [professionalId], references: [id])
+  service      Service      @relation(fields: [serviceId], references: [id])
+  payments     Payment[]
+
+  @@index([businessId, professionalId, startAt, endAt])
+  @@index([businessId, status])
+  @@index([clientId])
+  @@map("appointments")
+}
+
+model Payment {
+  id               BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId       BigInt    @map("business_id") @db.UnsignedBigInt
+  appointmentId    BigInt    @map("appointment_id") @db.UnsignedBigInt
+  provider         String    @default("pagbank")
+  method           String    @default("pix")
+  providerOrderId  String?   @map("provider_order_id") @db.VarChar(100)
+  providerChargeId String?   @map("provider_charge_id") @db.VarChar(100)
+  amount           Decimal   @db.Decimal(10, 2)
+  status           String    @default("pending")
+  qrCodeText       String?   @map("qr_code_text") @db.Text
+  qrCodeImageUrl   String?   @map("qr_code_image_url") @db.VarChar(500)
+  expiresAt        DateTime? @map("expires_at") @db.DateTime(0)
+  paidAt           DateTime? @map("paid_at") @db.DateTime(0)
+  rawResponse      Json?     @map("raw_response")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.DateTime(0)
+
+  business    Business    @relation(fields: [businessId], references: [id])
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+
+  @@index([appointmentId])
+  @@index([providerOrderId])
+  @@index([providerChargeId])
+  @@map("payments")
+}
+
+model WhatsappAuth {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId BigInt   @map("business_id") @db.UnsignedBigInt
+  key        String   @db.VarChar(190)
+  value      String   @db.LongText
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  @@unique([businessId, key])
+  @@map("whatsapp_auth")
+}
+
+model WhatsappSession {
+  id          BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId  BigInt    @unique @map("business_id") @db.UnsignedBigInt
+  status      String    @default("disconnected")
+  phoneNumber String?   @map("phone_number") @db.VarChar(30)
+  lastQr      String?   @map("last_qr") @db.Text
+  connectedAt DateTime? @map("connected_at") @db.DateTime(0)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.DateTime(0)
+
+  @@map("whatsapp_sessions")
+}
+
+model NotificationTemplate {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId BigInt   @map("business_id") @db.UnsignedBigInt
+  triggerKey String   @map("trigger_key") @db.VarChar(60)
+  channel    String   @default("whatsapp")
+  body       String   @db.Text
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  @@unique([businessId, triggerKey, channel])
+  @@map("notification_templates")
+}
+
+model NotificationJob {
+  id            BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId    BigInt    @map("business_id") @db.UnsignedBigInt
+  appointmentId BigInt?   @map("appointment_id") @db.UnsignedBigInt
+  triggerKey    String    @map("trigger_key") @db.VarChar(60)
+  channel       String    @default("whatsapp")
+  toPhone       String    @map("to_phone") @db.VarChar(30)
+  body          String    @db.Text
+  scheduledFor  DateTime  @map("scheduled_for") @db.DateTime(0)
+  status        String    @default("pending")
+  sentAt        DateTime? @map("sent_at") @db.DateTime(0)
+  error         String?   @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.DateTime(0)
+
+  @@index([status, scheduledFor])
+  @@index([appointmentId])
+  @@map("notification_jobs")
+}
