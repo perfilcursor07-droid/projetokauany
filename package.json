@@ -8,13 +8,16 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "start": "tsx src/server.ts",
+    "start": "node dist/server.js",
+    "start:dev": "tsx src/server.ts",
+    "build": "tsc",
     "migrate": "node scripts/migrate.mjs",
     "migrate:status": "node scripts/migrate.mjs --status",
     "create-admin": "node scripts/create-admin.mjs",
     "prisma:pull": "prisma db pull",
     "prisma:generate": "prisma generate",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "deploy:prod": "npm run build && pm2 restart studioflora"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
