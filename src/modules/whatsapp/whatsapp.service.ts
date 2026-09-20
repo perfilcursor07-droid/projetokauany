@@ -8,6 +8,7 @@ import { Boom } from '@hapi/boom';
 import QRCode from 'qrcode';
 import pino from 'pino';
 import { prisma } from '../../lib/prisma.js';
+import { env } from '../../config/env.js';
 import { useSQLAuthState, hasSavedSession } from './auth-store.js';
 
 type ConnStatus = 'disconnected' | 'connecting' | 'connected';
@@ -166,6 +167,7 @@ export async function disconnectWhatsapp(businessId: bigint): Promise<void> {
 export function getWhatsappStatus(businessId: bigint) {
   const state = getState(businessId);
   return {
+    mode: env.WHATSAPP_MODE, // 'manual' | 'baileys'
     status: state.status,
     phoneNumber: state.phoneNumber,
     qr: state.qr,

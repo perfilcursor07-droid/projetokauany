@@ -12,9 +12,11 @@ async function start() {
     await app.listen({ port: env.PORT, host: env.HOST });
     app.log.info(`API rodando em ${env.PUBLIC_API_URL}`);
 
-    // WhatsApp: reconecta sessoes salvas e inicia o worker de mensagens.
+    // WhatsApp: worker so envia automaticamente no modo 'baileys'.
     startNotificationWorker();
-    reconnectSavedSessions().catch((e) => app.log.warn(e, 'falha ao reconectar WhatsApp'));
+    if (env.WHATSAPP_MODE === 'baileys') {
+      reconnectSavedSessions().catch((e) => app.log.warn(e, 'falha ao reconectar WhatsApp'));
+    }
   } catch (err) {
     app.log.error(err);
     process.exit(1);

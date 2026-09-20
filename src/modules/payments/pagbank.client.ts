@@ -27,6 +27,8 @@ interface PagBankCharge {
   reference_id?: string;
   status: string; // AUTHORIZED, PAID, DECLINED, CANCELED, etc.
   paid_at?: string;
+  qr_code?: PagBankQrCode;
+  links?: PagBankLink[];
 }
 
 export interface PagBankOrder {
@@ -97,8 +99,7 @@ export interface CreatePixOrderParams {
 
 export async function createPixOrder(params: CreatePixOrderParams): Promise<PagBankOrder> {
   const expiration = new Date(Date.now() + params.expiresInMinutes * 60_000);
-  // Formato ISO com offset fixo de Brasilia (-03:00; sem horario de verao).
-  const expirationDate = expiration.toISOString().replace('Z', '-03:00');
+  const expirationDate = expiration.toISOString();
 
   const email =
     params.customer.email?.trim() ||
@@ -120,10 +121,20 @@ export async function createPixOrder(params: CreatePixOrderParams): Promise<PagB
         unit_amount: params.amountCents,
       },
     ],
-    qr_codes: [
+    charges: [
       {
-        amount: { value: params.amountCents },
-        expiration_date: expirationDate,
+        reference_id: params.referenceId,
+        description: params.description,
+        amount: {
+          value: params.amountCents,
+          currency: 'BRL',
+        },
+        payment_method: {
+          type: 'PIX',
+          pix: {
+            expiration_date: expirationDate,
+          },
+        },
       },
     ],
     notification_urls: [params.notificationUrl],
@@ -141,10 +152,13 @@ export async function getOrder(orderId: string): Promise<PagBankOrder> {
 
 // --- Helpers para extrair dados uteis da resposta. --------------------------
 export function extractQrCode(order: PagBankOrder) {
-  const qr = order.qr_codes?.[0];
+  const charge = order.charges?.find((c) => c.qr_code) ?? order.charges?.[0];
+  const qr = charge?.qr_code ?? order.qr_codes?.[0];
   if (!qr) return null;
   const image =
-    qr.links?.find((l) => l.media === 'image/png' || /PNG/i.test(l.rel))?.href ?? null;
+    charge?.links?.find((l) => l.media === 'image/png' || /PNG/i.test(l.rel))?.href ??
+    qr.links?.find((l) => l.media === 'image/png' || /PNG/i.test(l.rel))?.href ??
+    null;
   return {
     text: qr.text,
     imageUrl: image,

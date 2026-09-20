@@ -6,10 +6,66 @@ import {
   createPublicAppointment,
   AppointmentError,
 } from '../modules/appointments/appointments.service.js';
+import { renderTemplate, firstName } from '../modules/whatsapp/templates.js';
 
 function businessIdOf(req: FastifyRequest): bigint {
   return BigInt(req.user.businessId);
 }
+
+type AdminBioSettingRow = {
+  enabled: number | boolean;
+  title: string | null;
+  subtitle: string | null;
+  avatarUrl: string | null;
+  coverUrl: string | null;
+  backgroundUrl: string | null;
+  instagramUrl: string | null;
+};
+
+type AdminBioLinkRow = {
+  id: bigint;
+  label: string;
+  url: string | null;
+  type: string;
+  sortOrder: number;
+  active: number | boolean;
+};
+
+function monthRange(month?: string) {
+  const now = new Date();
+  const year = month ? Number(month.slice(0, 4)) : now.getFullYear();
+  const monthIndex = month ? Number(month.slice(5, 7)) : now.getMonth() + 1;
+
+  const start = new Date(year, monthIndex - 1, 1, 0, 0, 0, 0);
+  const end = new Date(year, monthIndex, 1, 0, 0, 0, 0);
+  return { start, end, month: `${year}-${String(monthIndex).padStart(2, '0')}` };
+}
+
+type CashTransactionRow = {
+  id: bigint;
+  appointment_id: bigint | null;
+  payment_id: bigint | null;
+  expense_id: bigint | null;
+  type: 'in' | 'out';
+  description: string;
+  category: string | null;
+  amount: Prisma.Decimal;
+  occurred_at: Date;
+};
+
+type ExpenseRow = {
+  id: bigint;
+  description: string;
+  category: string | null;
+  amount: Prisma.Decimal;
+  spent_at: Date;
+};
+
+type FinancialCategoryRow = {
+  id: bigint;
+  name: string;
+  type: 'in' | 'out';
+};
 
 export async function adminRoutes(app: FastifyInstance) {
   // Todas as rotas admin exigem autenticacao.
@@ -293,6 +349,69 @@ export async function adminRoutes(app: FastifyInstance) {
         where: { id: existing.clientId },
         data: { cancelCount: { increment: 1 } },
       });
+
+      // Mensagem automatica de cancelamento para a cliente (se ainda futura).
+      if (existing.status !== 'cancelled' && existing.startAt > new Date()) {
+        const [client, service, business] = await Promise.all([
+          prisma.client.findUnique({ where: { id: existing.clientId } }),
+          prisma.service.findUnique({ where: { id: existing.serviceId } }),
+          prisma.business.findUnique({ where: { id: businessId } }),
+        ]);
+        if (client?.phone) {
+          const vars: Record<string, string> = {
+            cliente: firstName(client.name),
+            servico: service?.name ?? '',
+            data: existing.startAt.toLocaleDateString('pt-BR', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+            }),
+            hora: existing.startAt.toLocaleTimeString('pt-BR', {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+            studio: business?.name ?? '',
+          };
+          const tpl = await prisma.notificationTemplate.findFirst({
+            where: { businessId, triggerKey: 'cancelled', channel: 'whatsapp', active: true },
+          });
+          await prisma.notificationJob.create({
+            data: {
+              businessId,
+              appointmentId: existing.id,
+              triggerKey: 'cancelled',
+              channel: 'whatsapp',
+              toPhone: client.phone,
+              body: tpl
+                ? renderTemplate(tpl.body, vars)
+                : `Ola, ${vars.cliente}. Seu agendamento de ${vars.data} as ${vars.hora} foi cancelado.`,
+              scheduledFor: new Date(),
+              status: 'pending',
+            },
+          });
+        }
+      }
+    }
+
+    if (parsed.data.status === 'completed' && existing.status !== 'completed') {
+      const paid = await prisma.$queryRaw<Array<{ total: Prisma.Decimal | null }>>`
+        SELECT COALESCE(SUM(amount), 0) AS total
+        FROM cash_transactions
+        WHERE business_id = ${businessId}
+          AND appointment_id = ${existing.id}
+          AND type = 'in'
+      `;
+      const alreadyReceived = Number(paid[0]?.total ?? 0);
+      const remaining = Math.max(Number(existing.totalAmount) - alreadyReceived, 0);
+      if (remaining > 0) {
+        await prisma.$executeRaw`
+          INSERT INTO cash_transactions
+            (business_id, appointment_id, type, description, category, amount, occurred_at)
+          VALUES
+            (${businessId}, ${existing.id}, 'in', 'Atendimento concluido', 'Serviços',
+             ${new Prisma.Decimal(remaining)}, NOW())
+        `;
+      }
     }
 
     return updated;
@@ -395,6 +514,487 @@ export async function adminRoutes(app: FastifyInstance) {
     return { deleted: true };
   });
 
+  // ======================= FINANCEIRO ===================================
+  app.get('/financial', async (req) => {
+    const businessId = businessIdOf(req);
+    const { month } = z
+      .object({ month: z.string().regex(/^\d{4}-\d{2}$/).optional() })
+      .parse(req.query);
+    const range = monthRange(month);
+
+    const [transactions, expenses] = await Promise.all([
+      prisma.$queryRaw<CashTransactionRow[]>`
+        SELECT id, appointment_id, payment_id, expense_id, type, description, category, amount, occurred_at
+        FROM cash_transactions
+        WHERE business_id = ${businessId}
+          AND occurred_at >= ${range.start}
+          AND occurred_at < ${range.end}
+        ORDER BY occurred_at DESC
+        LIMIT 300
+      `,
+      prisma.$queryRaw<ExpenseRow[]>`
+        SELECT id, description, category, amount, spent_at
+        FROM expenses
+        WHERE business_id = ${businessId}
+          AND spent_at >= ${range.start}
+          AND spent_at < ${range.end}
+        ORDER BY spent_at DESC
+        LIMIT 200
+      `,
+    ]);
+
+    const income = transactions
+      .filter((t) => t.type === 'in')
+      .reduce((sum, t) => sum + Number(t.amount), 0);
+    const outcome = transactions
+      .filter((t) => t.type === 'out')
+      .reduce((sum, t) => sum + Number(t.amount), 0);
+
+    return {
+      month: range.month,
+      summary: {
+        income,
+        outcome,
+        balance: income - outcome,
+      },
+      transactions: transactions.map((t) => ({
+        id: t.id.toString(),
+        type: t.type,
+        description: t.description,
+        category: t.category,
+        amount: Number(t.amount),
+        occurredAt: t.occurred_at,
+        appointmentId: t.appointment_id?.toString() ?? null,
+        paymentId: t.payment_id?.toString() ?? null,
+        expenseId: t.expense_id?.toString() ?? null,
+      })),
+      expenses: expenses.map((e) => ({
+        id: e.id.toString(),
+        description: e.description,
+        category: e.category,
+        amount: Number(e.amount),
+        spentAt: e.spent_at,
+      })),
+    };
+  });
+
+  app.get('/financial/categories', async (req) => {
+    const businessId = businessIdOf(req);
+    const rows = await prisma.$queryRaw<FinancialCategoryRow[]>`
+      SELECT id, name, type
+      FROM financial_categories
+      WHERE business_id = ${businessId}
+        AND active = TRUE
+      ORDER BY type ASC, name ASC
+    `;
+    return rows.map((r) => ({
+      id: r.id.toString(),
+      name: r.name,
+      type: r.type,
+    }));
+  });
+
+  app.post('/financial/categories', async (req, reply) => {
+    const businessId = businessIdOf(req);
+    const parsed = z
+      .object({
+        name: z.string().min(2).max(80),
+        type: z.enum(['in', 'out']),
+      })
+      .safeParse(req.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({ message: 'Dados invalidos', issues: parsed.error.flatten() });
+    }
+
+    const name = parsed.data.name.trim();
+    try {
+      await prisma.$executeRaw`
+        INSERT INTO financial_categories (business_id, name, type)
+        VALUES (${businessId}, ${name}, ${parsed.data.type})
+      `;
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2010') {
+        return reply.code(409).send({ message: 'Categoria ja existe.' });
+      }
+      throw err;
+    }
+
+    return reply.code(201).send({ created: true, name, type: parsed.data.type });
+  });
+
+  const transactionSchema = z.object({
+    type: z.enum(['in', 'out']),
+    description: z.string().min(2).max(200),
+    category: z.string().max(80).nullable().optional(),
+    amount: z.number().positive(),
+    occurredAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  });
+
+  app.post('/financial/transactions', async (req, reply) => {
+    const businessId = businessIdOf(req);
+    const parsed = transactionSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({ message: 'Dados invalidos', issues: parsed.error.flatten() });
+    }
+
+    const occurredAt = new Date(`${parsed.data.occurredAt}T12:00:00`);
+    const amount = new Prisma.Decimal(parsed.data.amount);
+    const description = parsed.data.description.trim();
+    const category = parsed.data.category?.trim() || null;
+
+    await prisma.$transaction(async (tx) => {
+      let expenseId: bigint | null = null;
+      if (parsed.data.type === 'out') {
+        await tx.$executeRaw`
+          INSERT INTO expenses (business_id, description, category, amount, spent_at)
+          VALUES (${businessId}, ${description}, ${category}, ${amount}, ${occurredAt})
+        `;
+        const inserted = await tx.$queryRaw<Array<{ id: bigint }>>`SELECT LAST_INSERT_ID() AS id`;
+        expenseId = inserted[0]?.id ?? null;
+      }
+
+      await tx.$executeRaw`
+        INSERT INTO cash_transactions
+          (business_id, expense_id, type, description, category, amount, occurred_at)
+        VALUES
+          (${businessId}, ${expenseId}, ${parsed.data.type}, ${description}, ${category}, ${amount}, ${occurredAt})
+      `;
+    });
+
+    return reply.code(201).send({ created: true });
+  });
+
+  app.patch('/financial/transactions/:id', async (req, reply) => {
+    const businessId = businessIdOf(req);
+    const { id } = z.object({ id: z.coerce.bigint() }).parse(req.params);
+    const parsed = transactionSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({ message: 'Dados invalidos', issues: parsed.error.flatten() });
+    }
+
+    const rows = await prisma.$queryRaw<CashTransactionRow[]>`
+      SELECT id, appointment_id, payment_id, expense_id, type, description, category, amount, occurred_at
+      FROM cash_transactions
+      WHERE id = ${id}
+        AND business_id = ${businessId}
+      LIMIT 1
+    `;
+    const existing = rows[0];
+    if (!existing) return reply.code(404).send({ message: 'Movimentacao nao encontrada' });
+
+    const occurredAt = new Date(`${parsed.data.occurredAt}T12:00:00`);
+    const amount = new Prisma.Decimal(parsed.data.amount);
+    const description = parsed.data.description.trim();
+    const category = parsed.data.category?.trim() || null;
+
+    await prisma.$transaction(async (tx) => {
+      let expenseId = existing.expense_id;
+
+      if (parsed.data.type === 'out') {
+        if (expenseId) {
+          await tx.$executeRaw`
+            UPDATE expenses
+            SET description = ${description},
+                category = ${category},
+                amount = ${amount},
+                spent_at = ${occurredAt}
+            WHERE id = ${expenseId}
+              AND business_id = ${businessId}
+          `;
+        } else {
+          await tx.$executeRaw`
+            INSERT INTO expenses (business_id, description, category, amount, spent_at)
+            VALUES (${businessId}, ${description}, ${category}, ${amount}, ${occurredAt})
+          `;
+          const inserted = await tx.$queryRaw<Array<{ id: bigint }>>`SELECT LAST_INSERT_ID() AS id`;
+          expenseId = inserted[0]?.id ?? null;
+        }
+      } else if (expenseId) {
+        await tx.$executeRaw`
+          DELETE FROM expenses
+          WHERE id = ${expenseId}
+            AND business_id = ${businessId}
+        `;
+        expenseId = null;
+      }
+
+      await tx.$executeRaw`
+        UPDATE cash_transactions
+        SET type = ${parsed.data.type},
+            description = ${description},
+            category = ${category},
+            amount = ${amount},
+            occurred_at = ${occurredAt},
+            expense_id = ${expenseId}
+        WHERE id = ${id}
+          AND business_id = ${businessId}
+      `;
+    });
+
+    return { updated: true };
+  });
+
+  app.delete('/financial/transactions/:id', async (req, reply) => {
+    const businessId = businessIdOf(req);
+    const { id } = z.object({ id: z.coerce.bigint() }).parse(req.params);
+    const rows = await prisma.$queryRaw<CashTransactionRow[]>`
+      SELECT id, appointment_id, payment_id, expense_id, type, description, category, amount, occurred_at
+      FROM cash_transactions
+      WHERE id = ${id}
+        AND business_id = ${businessId}
+      LIMIT 1
+    `;
+    const existing = rows[0];
+    if (!existing) return reply.code(404).send({ message: 'Movimentacao nao encontrada' });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        DELETE FROM cash_transactions
+        WHERE id = ${id}
+          AND business_id = ${businessId}
+      `;
+      if (existing.expense_id) {
+        await tx.$executeRaw`
+          DELETE FROM expenses
+          WHERE id = ${existing.expense_id}
+            AND business_id = ${businessId}
+        `;
+      }
+    });
+
+    return { deleted: true };
+  });
+
+  app.post('/financial/expenses', async (req, reply) => {
+    const businessId = businessIdOf(req);
+    const parsed = z
+      .object({
+        description: z.string().min(2).max(200),
+        category: z.string().max(80).nullable().optional(),
+        amount: z.number().positive(),
+        spentAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      })
+      .safeParse(req.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({ message: 'Dados invalidos', issues: parsed.error.flatten() });
+    }
+
+    const spentAt = new Date(`${parsed.data.spentAt}T12:00:00`);
+    const amount = new Prisma.Decimal(parsed.data.amount);
+    const description = parsed.data.description.trim();
+    const category = parsed.data.category?.trim() || null;
+    const cashDescription = category ? `${category} - ${description}` : description;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        INSERT INTO expenses (business_id, description, category, amount, spent_at)
+        VALUES (${businessId}, ${description}, ${category}, ${amount}, ${spentAt})
+      `;
+      const inserted = await tx.$queryRaw<Array<{ id: bigint }>>`SELECT LAST_INSERT_ID() AS id`;
+      const expenseId = inserted[0]?.id ?? null;
+      await tx.$executeRaw`
+        INSERT INTO cash_transactions (business_id, expense_id, type, description, category, amount, occurred_at)
+        VALUES (${businessId}, ${expenseId}, 'out', ${cashDescription}, ${category}, ${amount}, ${spentAt})
+      `;
+    });
+
+    return reply.code(201).send({
+      created: true,
+      description,
+      category,
+      amount: Number(amount),
+      spentAt,
+    });
+  });
+
+  // ======================= BIO PUBLICA ==================================
+  app.get('/bio', async (req) => {
+    const businessId = businessIdOf(req);
+    const business = await prisma.business.findUnique({ where: { id: businessId } });
+
+    await prisma.$executeRaw`
+      INSERT INTO bio_settings (business_id, enabled, title, subtitle)
+      VALUES (${businessId}, FALSE, ${business?.name ?? ''}, 'Agendamento online')
+      ON DUPLICATE KEY UPDATE business_id = business_id
+    `;
+
+    const [setting] = await prisma.$queryRaw<AdminBioSettingRow[]>`
+      SELECT
+        enabled,
+        title,
+        subtitle,
+        avatar_url AS avatarUrl,
+        cover_url AS coverUrl,
+        background_url AS backgroundUrl,
+        instagram_url AS instagramUrl
+      FROM bio_settings
+      WHERE business_id = ${businessId}
+      LIMIT 1
+    `;
+
+    const links = await prisma.$queryRaw<AdminBioLinkRow[]>`
+      SELECT id, label, url, type, sort_order AS sortOrder, active
+      FROM bio_links
+      WHERE business_id = ${businessId}
+      ORDER BY sort_order ASC, id ASC
+    `;
+
+    return {
+      setting: {
+        enabled: Boolean(setting?.enabled),
+        title: setting?.title || business?.name || '',
+        subtitle: setting?.subtitle ?? '',
+        avatarUrl: setting?.avatarUrl ?? null,
+        coverUrl: setting?.coverUrl ?? null,
+        backgroundUrl: setting?.backgroundUrl ?? null,
+        instagramUrl: setting?.instagramUrl ?? '',
+      },
+      links: links.map((link) => ({
+        id: link.id.toString(),
+        label: link.label,
+        url: link.url,
+        type: link.type,
+        sortOrder: link.sortOrder,
+        active: Boolean(link.active),
+      })),
+    };
+  });
+
+  app.put('/bio/settings', async (req, reply) => {
+    const businessId = businessIdOf(req);
+    const parsed = z
+      .object({
+        enabled: z.boolean(),
+        title: z.string().min(2).max(150),
+        subtitle: z.string().max(255).nullable().optional(),
+        avatarUrl: z.string().max(2_000_000).nullable().optional(),
+        coverUrl: z.string().max(2_000_000).nullable().optional(),
+        backgroundUrl: z.string().max(2_000_000).nullable().optional(),
+        instagramUrl: z.string().url().max(500).nullable().optional(),
+      })
+      .safeParse(req.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({ message: 'Dados invalidos', issues: parsed.error.flatten() });
+    }
+
+    const subtitle = parsed.data.subtitle?.trim() || null;
+    const instagramUrl = parsed.data.instagramUrl?.trim() || null;
+
+    await prisma.$executeRaw`
+      INSERT INTO bio_settings
+        (business_id, enabled, title, subtitle, avatar_url, cover_url, background_url, instagram_url)
+      VALUES
+        (
+          ${businessId},
+          ${parsed.data.enabled},
+          ${parsed.data.title.trim()},
+          ${subtitle},
+          ${parsed.data.avatarUrl ?? null},
+          ${parsed.data.coverUrl ?? null},
+          ${parsed.data.backgroundUrl ?? null},
+          ${instagramUrl}
+        )
+      ON DUPLICATE KEY UPDATE
+        enabled = VALUES(enabled),
+        title = VALUES(title),
+        subtitle = VALUES(subtitle),
+        avatar_url = VALUES(avatar_url),
+        cover_url = VALUES(cover_url),
+        background_url = VALUES(background_url),
+        instagram_url = VALUES(instagram_url)
+    `;
+
+    return { saved: true };
+  });
+
+  const bioLinkSchema = z.object({
+    label: z.string().min(2).max(120),
+    url: z.string().url().max(800).nullable().optional(),
+    type: z.enum(['external', 'booking']).default('external'),
+    sortOrder: z.coerce.number().int().min(0).max(999).default(0),
+    active: z.boolean().default(true),
+  });
+
+  app.post('/bio/links', async (req, reply) => {
+    const businessId = businessIdOf(req);
+    const parsed = bioLinkSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ message: 'Dados invalidos', issues: parsed.error.flatten() });
+    }
+    if (parsed.data.type === 'external' && !parsed.data.url) {
+      return reply.code(400).send({ message: 'Informe uma URL para link externo.' });
+    }
+
+    await prisma.$executeRaw`
+      INSERT INTO bio_links (business_id, label, url, type, sort_order, active)
+      VALUES (
+        ${businessId},
+        ${parsed.data.label.trim()},
+        ${parsed.data.type === 'booking' ? null : parsed.data.url},
+        ${parsed.data.type},
+        ${parsed.data.sortOrder},
+        ${parsed.data.active}
+      )
+    `;
+
+    return reply.code(201).send({ created: true });
+  });
+
+  app.patch('/bio/links/:id', async (req, reply) => {
+    const businessId = businessIdOf(req);
+    const { id } = z.object({ id: z.coerce.bigint() }).parse(req.params);
+    const parsed = bioLinkSchema.partial().safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ message: 'Dados invalidos', issues: parsed.error.flatten() });
+    }
+
+    const [existing] = await prisma.$queryRaw<AdminBioLinkRow[]>`
+      SELECT id, label, url, type, sort_order AS sortOrder, active
+      FROM bio_links
+      WHERE id = ${id}
+        AND business_id = ${businessId}
+      LIMIT 1
+    `;
+    if (!existing) return reply.code(404).send({ message: 'Link nao encontrado' });
+
+    const type = parsed.data.type ?? existing.type;
+    const url = type === 'booking' ? null : parsed.data.url !== undefined ? parsed.data.url : existing.url;
+    if (type === 'external' && !url) {
+      return reply.code(400).send({ message: 'Informe uma URL para link externo.' });
+    }
+
+    await prisma.$executeRaw`
+      UPDATE bio_links
+      SET
+        label = ${parsed.data.label?.trim() ?? existing.label},
+        url = ${url},
+        type = ${type},
+        sort_order = ${parsed.data.sortOrder ?? existing.sortOrder},
+        active = ${parsed.data.active ?? Boolean(existing.active)}
+      WHERE id = ${id}
+        AND business_id = ${businessId}
+    `;
+
+    return { saved: true };
+  });
+
+  app.delete('/bio/links/:id', async (req, reply) => {
+    const businessId = businessIdOf(req);
+    const { id } = z.object({ id: z.coerce.bigint() }).parse(req.params);
+    const result = await prisma.$executeRaw`
+      DELETE FROM bio_links
+      WHERE id = ${id}
+        AND business_id = ${businessId}
+    `;
+    if (result === 0) return reply.code(404).send({ message: 'Link nao encontrado' });
+    return { deleted: true };
+  });
+
   // ======================= CONFIGURACOES / IDENTIDADE ===================
   app.get('/settings', async (req) => {
     const businessId = businessIdOf(req);
@@ -412,6 +1012,12 @@ export async function adminRoutes(app: FastifyInstance) {
     const parsed = z
       .object({
         name: z.string().min(2).max(150).optional(),
+        slug: z
+          .string()
+          .min(2)
+          .max(120)
+          .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Use apenas letras minusculas, numeros e hifens')
+          .optional(),
         // Aceita URL http(s) ou data URL de imagem (base64). Null remove a logo.
         logoUrl: z.string().max(2_000_000).nullable().optional(),
         phone: z.string().max(30).nullable().optional(),
@@ -420,15 +1026,23 @@ export async function adminRoutes(app: FastifyInstance) {
     if (!parsed.success) {
       return reply.code(400).send({ message: 'Dados invalidos', issues: parsed.error.flatten() });
     }
-    const updated = await prisma.business.update({
-      where: { id: businessId },
-      data: {
-        ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
-        ...(parsed.data.logoUrl !== undefined ? { logoUrl: parsed.data.logoUrl } : {}),
-        ...(parsed.data.phone !== undefined ? { phone: parsed.data.phone } : {}),
-      },
-    });
-    return { name: updated.name, logoUrl: updated.logoUrl, phone: updated.phone };
+    try {
+      const updated = await prisma.business.update({
+        where: { id: businessId },
+        data: {
+          ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+          ...(parsed.data.slug !== undefined ? { slug: parsed.data.slug } : {}),
+          ...(parsed.data.logoUrl !== undefined ? { logoUrl: parsed.data.logoUrl } : {}),
+          ...(parsed.data.phone !== undefined ? { phone: parsed.data.phone } : {}),
+        },
+      });
+      return { name: updated.name, logoUrl: updated.logoUrl, phone: updated.phone, slug: updated.slug };
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        return reply.code(409).send({ message: 'Este link publico ja esta em uso.' });
+      }
+      throw err;
+    }
   });
 
   // ======================= FINANCEIRO (resumo) ==========================

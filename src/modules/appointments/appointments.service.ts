@@ -196,3 +196,61 @@ export async function getAppointmentByToken(token: string) {
     },
   });
 }
+
+export async function getPublicAppointmentsByPhone(businessId: bigint, phone: string) {
+  const digits = phone.replace(/\D/g, '');
+  const client = await prisma.client.findFirst({
+    where: { businessId, phone: digits },
+  });
+  if (!client) return [];
+
+  const since = new Date();
+  since.setDate(since.getDate() - 30);
+  since.setHours(0, 0, 0, 0);
+
+  const appointments = await prisma.appointment.findMany({
+    where: {
+      businessId,
+      clientId: client.id,
+      startAt: { gte: since },
+      status: { not: 'removed' },
+    },
+    include: {
+      service: true,
+      professional: { select: { id: true, name: true } },
+      client: { select: { name: true, phone: true } },
+      payments: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      },
+    },
+    orderBy: { startAt: 'asc' },
+    take: 10,
+  });
+
+  for (const appointment of appointments) {
+    if (appointment.status === 'pending_payment') {
+      await expireAppointmentIfNeeded(appointment.token);
+    }
+  }
+
+  return prisma.appointment.findMany({
+    where: {
+      businessId,
+      clientId: client.id,
+      startAt: { gte: since },
+      status: { not: 'removed' },
+    },
+    include: {
+      service: true,
+      professional: { select: { id: true, name: true } },
+      client: { select: { name: true, phone: true } },
+      payments: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      },
+    },
+    orderBy: { startAt: 'asc' },
+    take: 10,
+  });
+}

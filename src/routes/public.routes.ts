@@ -6,6 +6,7 @@ import { getAvailableSlots } from '../modules/availability/availability.service.
 import {
   createPublicAppointment,
   getAppointmentByToken,
+  getPublicAppointmentsByPhone,
   computeDeposit,
   AppointmentError,
 } from '../modules/appointments/appointments.service.js';
@@ -16,7 +17,79 @@ import {
   PaymentError,
 } from '../modules/payments/payments.service.js';
 
+type PublicBioSettingRow = {
+  enabled: number | boolean;
+  title: string | null;
+  subtitle: string | null;
+  avatarUrl: string | null;
+  coverUrl: string | null;
+  backgroundUrl: string | null;
+  instagramUrl: string | null;
+};
+
+type PublicBioLinkRow = {
+  id: bigint;
+  label: string;
+  url: string | null;
+  type: string;
+  sortOrder: number;
+};
+
 export async function publicRoutes(app: FastifyInstance) {
+  // --- Bio publica opcional ----------------------------------------------
+  app.get('/bio', async (req, reply) => {
+    const { slug } = z.object({ slug: z.string().optional() }).parse(req.query);
+    const business = await resolvePublicBusiness(slug);
+    if (!business) return reply.code(404).send({ message: 'Negocio nao encontrado' });
+
+    const [setting] = await prisma.$queryRaw<PublicBioSettingRow[]>`
+      SELECT
+        enabled,
+        title,
+        subtitle,
+        avatar_url AS avatarUrl,
+        cover_url AS coverUrl,
+        background_url AS backgroundUrl,
+        instagram_url AS instagramUrl
+      FROM bio_settings
+      WHERE business_id = ${business.id}
+      LIMIT 1
+    `;
+
+    const links = await prisma.$queryRaw<PublicBioLinkRow[]>`
+      SELECT id, label, url, type, sort_order AS sortOrder
+      FROM bio_links
+      WHERE business_id = ${business.id}
+        AND active = TRUE
+      ORDER BY sort_order ASC, id ASC
+    `;
+
+    return {
+      business: {
+        id: business.id.toString(),
+        name: business.name,
+        slug: business.slug,
+        logoUrl: business.logoUrl,
+      },
+      bio: {
+        enabled: Boolean(setting?.enabled),
+        title: setting?.title || business.name,
+        subtitle: setting?.subtitle || null,
+        avatarUrl: setting?.avatarUrl || business.logoUrl,
+        coverUrl: setting?.coverUrl || null,
+        backgroundUrl: setting?.backgroundUrl || null,
+        instagramUrl: setting?.instagramUrl || null,
+      },
+      links: links.map((link) => ({
+        id: link.id.toString(),
+        label: link.label,
+        url: link.url,
+        type: link.type,
+        sortOrder: link.sortOrder,
+      })),
+    };
+  });
+
   // --- Lista de servicos ativos ------------------------------------------
   app.get('/services', async (req, reply) => {
     const { slug } = z.object({ slug: z.string().optional() }).parse(req.query);
@@ -137,6 +210,55 @@ export async function publicRoutes(app: FastifyInstance) {
       }
       throw err;
     }
+  });
+
+  // --- Consulta de agendamentos pelo WhatsApp da cliente (sem login) -----
+  app.post('/appointments/lookup', async (req, reply) => {
+    const schema = z.object({
+      slug: z.string().optional(),
+      phone: z.string().min(8),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ message: 'Dados invalidos', issues: parsed.error.flatten() });
+    }
+
+    const business = await resolvePublicBusiness(parsed.data.slug);
+    if (!business) return reply.code(404).send({ message: 'Negocio nao encontrado' });
+
+    const appointments = await getPublicAppointmentsByPhone(business.id, parsed.data.phone);
+
+    return {
+      business: {
+        id: business.id.toString(),
+        name: business.name,
+        logoUrl: business.logoUrl,
+      },
+      appointments: appointments.map((appointment) => {
+        const lastPayment = appointment.payments[0];
+        return {
+          token: appointment.token,
+          status: appointment.status,
+          paymentStatus: appointment.paymentStatus,
+          client: appointment.client.name,
+          service: appointment.service.name,
+          professional: appointment.professional.name,
+          startAt: appointment.startAt,
+          endAt: appointment.endAt,
+          totalAmount: Number(appointment.totalAmount),
+          depositAmount: Number(appointment.depositAmount),
+          expiresAt: appointment.expiresAt,
+          payment: lastPayment
+            ? {
+                status: lastPayment.status,
+                qrCodeText: lastPayment.qrCodeText,
+                qrCodeImageUrl: lastPayment.qrCodeImageUrl,
+                expiresAt: lastPayment.expiresAt,
+              }
+            : null,
+        };
+      }),
+    };
   });
 
   // --- Consulta do agendamento pela cliente (sem login) ------------------

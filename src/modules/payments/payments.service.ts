@@ -249,10 +249,10 @@ async function applyPaidPayment(
     // Entrada no caixa.
     await tx.$executeRaw`
       INSERT INTO cash_transactions
-        (business_id, appointment_id, payment_id, type, description, amount, occurred_at)
+        (business_id, appointment_id, payment_id, type, description, category, amount, occurred_at)
       VALUES
         (${appointment.businessId}, ${appointment.id}, ${payment.id}, 'in',
-         ${'Sinal - ' + appointment.service.name}, ${payment.amount}, NOW())
+         ${'Sinal - ' + appointment.service.name}, 'Serviços', ${payment.amount}, NOW())
     `;
 
     // Monta as variaveis das mensagens.
@@ -291,8 +291,43 @@ async function applyPaidPayment(
       },
     });
 
+    // Lembretes automaticos (24h e 2h antes). Ficam agendados na fila; o worker
+    // envia na hora certa. Se o agendamento for cancelado, o worker os ignora.
+    const reminders: Array<{ trigger: string; when: Date; fallback: string }> = [
+      {
+        trigger: 'reminder_24h',
+        when: new Date(appointment.startAt.getTime() - 24 * 60 * 60 * 1000),
+        fallback: `Ola, ${vars.cliente}! Passando para lembrar do seu horario amanha: ${vars.servico} as ${vars.hora}. 💅`,
+      },
+      {
+        trigger: 'reminder_2h',
+        when: new Date(appointment.startAt.getTime() - 2 * 60 * 60 * 1000),
+        fallback: `${vars.cliente}, seu horario e daqui a pouco (${vars.hora}). Ate ja! 💅`,
+      },
+    ];
+    for (const r of reminders) {
+      if (r.when <= new Date()) continue; // ja passou: nao agenda
+      const rtpl = await tx.notificationTemplate.findFirst({
+        where: { businessId: appointment.businessId, triggerKey: r.trigger, channel: 'whatsapp', active: true },
+      });
+      await tx.notificationJob.create({
+        data: {
+          businessId: appointment.businessId,
+          appointmentId: appointment.id,
+          triggerKey: r.trigger,
+          channel: 'whatsapp',
+          toPhone: appointment.client.phone,
+          body: rtpl ? renderTemplate(rtpl.body, vars) : r.fallback,
+          scheduledFor: r.when,
+          status: 'pending',
+        },
+      });
+    }
+
     // Mensagem para a GESTORA (aviso de sinal recebido).
-    if (business?.phone) {
+    // No modo manual isso seria "voce mandando para voce mesma" (o painel ja
+    // te avisa), entao so enfileiramos quando o envio e automatico (baileys).
+    if (business?.phone && env.WHATSAPP_MODE === 'baileys') {
       const managerBody =
         `💰 Sinal recebido!\n\n${appointment.client.name} pagou ${vars.sinal} de sinal.\n` +
         `Servico: ${vars.servico}\n📅 ${vars.data} às ${vars.hora}\n` +

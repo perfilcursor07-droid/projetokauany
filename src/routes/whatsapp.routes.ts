@@ -58,11 +58,12 @@ export async function whatsappRoutes(app: FastifyInstance) {
       prisma.notificationJob.findMany({
         where: { businessId, channel: 'whatsapp' },
         orderBy: { createdAt: 'desc' },
-        take: 12,
+        take: 30,
         select: {
           id: true,
           triggerKey: true,
           toPhone: true,
+          body: true,
           status: true,
           error: true,
           createdAt: true,
@@ -72,12 +73,31 @@ export async function whatsappRoutes(app: FastifyInstance) {
     ]);
 
     return {
+      mode: getWhatsappStatus(businessId).mode,
       studioPhone: business?.phone ?? null,
       notifications: notifications.map((item) => ({
         ...item,
         id: item.id.toString(),
       })),
     };
+  });
+
+  // Marca uma mensagem como enviada (usado no modo manual, apos abrir o wa.me).
+  app.post('/notifications/:id/sent', async (req, reply) => {
+    const parsed = z.object({ id: z.coerce.bigint() }).safeParse(req.params);
+    if (!parsed.success) return reply.code(400).send({ message: 'Notificacao invalida' });
+
+    const notification = await prisma.notificationJob.findFirst({
+      where: { id: parsed.data.id, businessId: businessIdOf(req), channel: 'whatsapp' },
+      select: { id: true },
+    });
+    if (!notification) return reply.code(404).send({ message: 'Notificacao nao encontrada' });
+
+    await prisma.notificationJob.update({
+      where: { id: notification.id },
+      data: { status: 'sent', sentAt: new Date(), error: null },
+    });
+    return { marked: true };
   });
 
   // O reenvio so recoloca na fila uma notificacao pertencente ao negocio.

@@ -31,6 +31,11 @@ model Business {
   blockedTimes  BlockedTime[]
   appointments  Appointment[]
   payments      Payment[]
+  expenses      Expense[]
+  cashTransactions CashTransaction[]
+  financialCategories FinancialCategory[]
+  bioSetting BioSetting?
+  bioLinks BioLink[]
 
   @@map("businesses")
 }
@@ -161,6 +166,7 @@ model Appointment {
   professional Professional @relation(fields: [professionalId], references: [id])
   service      Service      @relation(fields: [serviceId], references: [id])
   payments     Payment[]
+  cashTransactions CashTransaction[]
 
   @@index([businessId, professionalId, startAt, endAt])
   @@index([businessId, status])
@@ -188,11 +194,99 @@ model Payment {
 
   business    Business    @relation(fields: [businessId], references: [id])
   appointment Appointment @relation(fields: [appointmentId], references: [id])
+  cashTransactions CashTransaction[]
 
   @@index([appointmentId])
   @@index([providerOrderId])
   @@index([providerChargeId])
   @@map("payments")
+}
+
+model Expense {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId  BigInt   @map("business_id") @db.UnsignedBigInt
+  description String   @db.VarChar(200)
+  category    String?  @db.VarChar(80)
+  amount      Decimal  @db.Decimal(10, 2)
+  spentAt     DateTime @map("spent_at") @db.Date
+  createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId, spentAt])
+  @@map("expenses")
+}
+
+model CashTransaction {
+  id            BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId    BigInt   @map("business_id") @db.UnsignedBigInt
+  appointmentId BigInt?  @map("appointment_id") @db.UnsignedBigInt
+  paymentId     BigInt?  @map("payment_id") @db.UnsignedBigInt
+  expenseId     BigInt?  @map("expense_id") @db.UnsignedBigInt
+  type          String
+  description   String   @db.VarChar(200)
+  category      String?  @db.VarChar(80)
+  amount        Decimal  @db.Decimal(10, 2)
+  occurredAt    DateTime @default(now()) @map("occurred_at") @db.DateTime(0)
+  createdAt     DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  business    Business     @relation(fields: [businessId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+  payment     Payment?     @relation(fields: [paymentId], references: [id])
+
+  @@index([businessId, occurredAt])
+  @@index([expenseId])
+  @@map("cash_transactions")
+}
+
+model FinancialCategory {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId BigInt   @map("business_id") @db.UnsignedBigInt
+  name       String   @db.VarChar(80)
+  type       String
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, type, name])
+  @@index([businessId, type, active])
+  @@map("financial_categories")
+}
+
+model BioSetting {
+  id            BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId    BigInt   @unique @map("business_id") @db.UnsignedBigInt
+  enabled       Boolean  @default(false)
+  title         String?  @db.VarChar(150)
+  subtitle      String?  @db.VarChar(255)
+  avatarUrl     String?  @map("avatar_url") @db.LongText
+  coverUrl      String?  @map("cover_url") @db.LongText
+  backgroundUrl String?  @map("background_url") @db.LongText
+  instagramUrl  String?  @map("instagram_url") @db.VarChar(500)
+  createdAt     DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("bio_settings")
+}
+
+model BioLink {
+  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  businessId BigInt  @map("business_id") @db.UnsignedBigInt
+  label     String   @db.VarChar(120)
+  url       String?  @db.VarChar(800)
+  type      String   @default("external") @db.VarChar(30)
+  sortOrder Int      @default(0) @map("sort_order")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId, sortOrder, id])
+  @@map("bio_links")
 }
 
 model WhatsappAuth {
