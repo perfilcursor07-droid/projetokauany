@@ -7,8 +7,7 @@ git push origin main
 rapido SERVIDOR
 cd /home/studioflora/htdocs/studioflora.site
 
-git stash push -u -m "backup-before-client-delete" || true
-git pull --ff-only origin main
+git pull origin main
 
 chown -R studioflora:studioflora /home/studioflora/htdocs/studioflora.site
 
@@ -17,17 +16,14 @@ export NVM_DIR="$HOME/.nvm"
 . "$NVM_DIR/nvm.sh"
 
 cd /home/studioflora/htdocs/studioflora.site
-
-npm ci
+npm install
 npx prisma generate
-npm run migrate
 npm run build
 
-cd web
-npm ci
+cd /home/studioflora/htdocs/studioflora.site/web
+npm install
 npm run build
 
-cd ..
 pm2 restart studioflora-api --update-env
 pm2 restart studioflora-web --update-env
 pm2 save

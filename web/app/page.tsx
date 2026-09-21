@@ -127,6 +127,8 @@ export default function BookingPage() {
   const [businessName, setBusinessName] = useState("Studio");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [bio, setBio] = useState<PublicBio | null>(null);
+  const [bioChecked, setBioChecked] = useState(false);
+  const [queryChecked, setQueryChecked] = useState(false);
   const [forceBooking, setForceBooking] = useState(false);
   const [forceLookup, setForceLookup] = useState(false);
 
@@ -146,12 +148,14 @@ export default function BookingPage() {
     const params = new URLSearchParams(window.location.search);
     setForceBooking(params.get("agendar") === "1");
     setForceLookup(params.get("consulta") === "1");
+    setQueryChecked(true);
   }, []);
 
   useEffect(() => {
     api<PublicBio>("/api/public/bio")
       .then(setBio)
-      .catch(() => setBio(null));
+      .catch(() => setBio(null))
+      .finally(() => setBioChecked(true));
   }, []);
 
   useEffect(() => {
@@ -330,6 +334,17 @@ export default function BookingPage() {
     setForceLookup(true);
     setForceBooking(false);
     window.history.pushState(null, "", "/?consulta=1");
+  }
+
+  if (!queryChecked || (!bioChecked && !forceBooking && !forceLookup)) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#fff1f6] via-[#fff8fa] to-sand-50 px-4 text-sand-900">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[#f5c9d7] border-t-[#c54f78]" />
+          <p className="text-sm font-medium text-[#b35d7a]">Carregando...</p>
+        </div>
+      </main>
+    );
   }
 
   if (bio?.bio.enabled && !forceBooking && !forceLookup) {

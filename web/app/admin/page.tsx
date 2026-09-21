@@ -51,10 +51,10 @@ type Dashboard = {
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   pending_payment: { label: "Aguardando sinal", cls: "bg-amber-50 text-amber-700 border-amber-200" },
   confirmed: { label: "Confirmado", cls: "bg-accent-50 text-accent-700 border-accent-200" },
-  completed: { label: "Concluído", cls: "bg-sand-100 text-sand-600 border-sand-200" },
-  cancelled: { label: "Cancelado", cls: "bg-sand-50 text-sand-400 border-sand-200" },
+  completed: { label: "Concluído", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  cancelled: { label: "Cancelado", cls: "bg-sand-50 text-sand-500 border-sand-200" },
   no_show: { label: "Faltou", cls: "bg-red-50 text-red-600 border-red-200" },
-  expired: { label: "Expirado", cls: "bg-sand-50 text-sand-400 border-sand-200" },
+  expired: { label: "Expirado", cls: "bg-sand-50 text-sand-500 border-sand-200" },
 };
 
 export default function DashboardPage() {
@@ -68,259 +68,147 @@ export default function DashboardPage() {
   }, []);
 
   if (error) return <p className="text-red-600">{error}</p>;
-  if (!data) return <p className="text-sand-400">Carregandoâ€¦</p>;
-
-  const maxFinancial = Math.max(
-    data.today.expectedRevenue,
-    data.today.receivedDeposits,
-    data.today.toReceive,
-    1,
-  );
-  const receivedPct = Math.min(100, (data.today.receivedDeposits / maxFinancial) * 100);
-  const pendingPct = Math.min(100, (data.today.toReceive / maxFinancial) * 100);
-  const expectedPct = Math.min(100, (data.today.expectedRevenue / maxFinancial) * 100);
-  const completionPct =
-    data.today.expectedRevenue > 0
-      ? Math.min(100, (data.today.receivedDeposits / data.today.expectedRevenue) * 100)
-      : 0;
+  if (!data) return <p className="text-sand-400">Carregando...</p>;
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-lg border border-accent-100 bg-white p-4 shadow-sm shadow-accent-100/40">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <div className="space-y-5">
+      <section className="rounded-2xl border border-accent-100 bg-white p-5 shadow-sm shadow-accent-100/40">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-accent-200 bg-accent-50 px-2.5 py-1 text-[11px] font-semibold uppercase text-accent-700">
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-accent-200 bg-accent-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-accent-700">
               <CalendarIcon className="h-3.5 w-3.5" />
-              Resumo do dia
+              Painel do studio
             </div>
-            <h1 className="font-display text-2xl leading-tight text-sand-900">
-              Hoje
-            </h1>
-            <p className="mt-1 max-w-2xl text-sm leading-5 text-sand-500">
-              Visão rápida dos atendimentos, recebimentos e próximos horários.
+            <h1 className="font-display text-2xl leading-tight text-sand-900">Resumo geral</h1>
+            <p className="mt-1 text-sm text-sand-500">
+              Veja rapidamente o dia de hoje e quem agendou nesta semana.
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 sm:min-w-[280px]">
-            <MiniMetric label="Recebido" value={brl(data.today.receivedDeposits)} tone="rose" />
-            <MiniMetric label="A receber" value={brl(data.today.toReceive)} />
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat
-          icon={UsersIcon}
-          label="Atendimentos"
-          value={String(data.today.count)}
-          hint="Marcados para hoje"
-        />
-        <Stat
-          icon={WalletIcon}
-          label="Previsto"
-          value={brl(data.today.expectedRevenue)}
-          hint="Receita total do dia"
-        />
-        <Stat
-          icon={CheckIcon}
-          label="Recebido"
-          value={brl(data.today.receivedDeposits)}
-          hint="Sinais e concluídos"
-        />
-        <Stat
-          icon={ClockIcon}
-          label="A receber"
-          value={brl(data.today.toReceive)}
-          hint="Saldo pendente"
-        />
-      </section>
-
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat
-          icon={CalendarIcon}
-          label="Semana"
-          value={String(data.week.count)}
-          hint="Agendados na semana"
-        />
-        <Stat
-          icon={CheckIcon}
-          label="Sinais pagos"
-          value={String(data.week.depositPaid)}
-          hint="Clientes que pagaram sinal"
-        />
-        <Stat
-          icon={ClockIcon}
-          label="Sinais pendentes"
-          value={String(data.week.pendingDeposit)}
-          hint="Aguardando pagamento"
-        />
-        <Stat
-          icon={WalletIcon}
-          label="Recebido semana"
-          value={brl(data.week.received)}
-          hint="Sinais e atendimentos"
-        />
-      </section>
-
-      <section className="rounded-lg border border-accent-100 bg-white p-4 shadow-sm shadow-accent-100/40">
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="font-display text-xl text-sand-900">Resumo da semana</h2>
-            <p className="mt-0.5 text-sm text-sand-500">
-              {formatWeekRange(data.week.start, data.week.end)} · quem agendou e situação do sinal
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full border border-accent-200 bg-accent-50 px-3 py-1 font-semibold text-accent-700">
-              {data.week.completed} concluídos
-            </span>
-            <span className="rounded-full border border-sand-200 bg-sand-50 px-3 py-1 font-semibold text-sand-600">
-              {brl(data.week.toReceive)} a receber
-            </span>
-          </div>
-        </div>
-
-        <div className="overflow-hidden rounded-lg border border-accent-100">
-          {data.week.appointments.length === 0 ? (
-            <div className="flex items-center gap-3 p-5 text-sm text-sand-400">
-              <CalendarIcon className="h-5 w-5 text-accent-400" />
-              Nenhum atendimento nesta semana.
+          {data.next ? (
+            <div className="rounded-2xl border border-accent-100 bg-accent-50 px-4 py-3 xl:min-w-[360px]">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-accent-700">
+                Próximo atendimento
+              </p>
+              <div className="mt-2 flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-sand-900">{data.next.client}</p>
+                  <p className="truncate text-xs text-sand-500">{data.next.service}</p>
+                </div>
+                <p className="font-display text-3xl leading-none text-accent-700">
+                  {formatTime(data.next.time)}
+                </p>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="font-semibold text-sand-600">{brl(data.next.total)}</span>
+                <PaymentPill paid={data.next.depositPaid} />
+              </div>
             </div>
           ) : (
-            data.week.appointments.map((a) => <WeekAppointmentRow key={a.id} appointment={a} />)
+            <div className="rounded-2xl border border-sand-100 bg-sand-50 px-4 py-3 xl:min-w-[320px]">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-400">
+                Próximo atendimento
+              </p>
+              <p className="mt-1 text-sm font-semibold text-sand-800">Nenhum horário restante hoje</p>
+            </div>
           )}
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="rounded-lg border border-accent-100 bg-white p-4 shadow-sm shadow-accent-100/40">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="font-display text-xl text-sand-900">Financeiro de hoje</h2>
-              <p className="mt-0.5 text-xs text-sand-500">Previsto, recebido e saldo pendente</p>
-            </div>
-            <ChartIcon className="h-5 w-5 text-accent-600" />
-          </div>
-
-          <div className="grid gap-5 md:grid-cols-[150px_1fr] md:items-center">
-            <DonutChart percent={completionPct} label="recebido" />
-            <div className="space-y-3">
-              <FinanceBar
-                label="Previsto"
-                value={brl(data.today.expectedRevenue)}
-                percent={expectedPct}
-                color="bg-accent-300"
-              />
-              <FinanceBar
-                label="Recebido"
-                value={brl(data.today.receivedDeposits)}
-                percent={receivedPct}
-                color="bg-accent-600"
-              />
-              <FinanceBar
-                label="A receber"
-                value={brl(data.today.toReceive)}
-                percent={pendingPct}
-                color="bg-rose-300"
-              />
-            </div>
-          </div>
-        </div>
-
-        {data.next ? (
-          <div className="rounded-lg border border-accent-100 bg-white p-4 shadow-sm shadow-accent-100/40">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent-600 text-white">
-                  <ClockIcon className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase text-sand-400">Próximo atendimento</p>
-                  <p className="mt-0.5 text-sm font-semibold text-sand-900">{data.next.client}</p>
-                </div>
-            </div>
-              <p className="font-display text-3xl leading-none text-accent-700">
-                {formatTime(data.next.time)}
-              </p>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-accent-100 bg-accent-50 px-3 py-2.5">
-              <div>
-                <p className="text-sm font-medium text-sand-900">{data.next.service}</p>
-                <p className="text-xs text-sand-500">Valor {brl(data.next.total)}</p>
-              </div>
-                {data.next.depositPaid ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-accent-200 bg-accent-50 px-2.5 py-1 text-xs font-semibold text-accent-700">
-                    <CheckIcon className="h-4 w-4" />
-                    Sinal pago
-                  </span>
-                ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
-                    <ClockIcon className="h-4 w-4" />
-                    Aguardando sinal
-                  </span>
-                )}
-              </div>
-            </div>
-        ) : (
-          <div className="rounded-lg border border-accent-100 bg-white p-4 shadow-sm">
-            <div className="flex h-full min-h-32 flex-col justify-center">
-              <p className="text-xs font-semibold uppercase text-accent-700">Próximo atendimento</p>
-              <p className="mt-2 font-display text-2xl text-sand-900">Sem horários hoje</p>
-              <p className="mt-1 text-sm text-sand-500">Quando houver agendamento, ele aparece aqui.</p>
-            </div>
-          </div>
-        )}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat icon={UsersIcon} label="Hoje" value={String(data.today.count)} hint="Atendimentos" />
+        <Stat icon={WalletIcon} label="A receber hoje" value={brl(data.today.toReceive)} hint="Saldo pendente" />
+        <Stat icon={CalendarIcon} label="Semana" value={String(data.week.count)} hint="Agendamentos" />
+        <Stat icon={CheckIcon} label="Sinais pagos" value={String(data.week.depositPaid)} hint="Nesta semana" />
       </section>
 
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h2 className="font-display text-xl text-sand-900">Agenda de hoje</h2>
-            <p className="mt-0.5 text-sm text-sand-500">Atendimentos em ordem de horário</p>
+      <section className="grid gap-5 xl:grid-cols-[1fr_420px]">
+        <div className="rounded-2xl border border-accent-100 bg-white shadow-sm shadow-accent-100/40">
+          <SectionHeader
+            title="Agenda de hoje"
+            subtitle={`${data.appointments.length} atendimento${data.appointments.length === 1 ? "" : "s"}`}
+          />
+          <div className="divide-y divide-accent-50">
+            {data.appointments.length === 0 ? (
+              <EmptyState icon={ClockIcon} text="Nenhum atendimento para hoje." />
+            ) : (
+              data.appointments.map((appointment) => <TodayRow key={appointment.id} appointment={appointment} />)
+            )}
           </div>
-          <span className="hidden rounded-full border border-accent-200 bg-accent-50 px-3 py-1 text-xs font-semibold text-accent-700 sm:inline-flex">
-            {data.appointments.length} itens
-          </span>
         </div>
-        <div className="overflow-hidden rounded-lg border border-accent-100 bg-white shadow-sm shadow-accent-100/40">
-        {data.appointments.length === 0 && (
-          <div className="flex items-center gap-3 p-5 text-sm text-sand-400">
-            <CalendarIcon className="h-5 w-5 text-accent-400" />
-            Nenhum atendimento para hoje.
+
+        <div className="rounded-2xl border border-accent-100 bg-white p-4 shadow-sm shadow-accent-100/40">
+          <h2 className="font-display text-xl text-sand-900">Financeiro</h2>
+          <p className="mt-1 text-sm text-sand-500">Resumo simples de valores.</p>
+
+          <div className="mt-4 space-y-3">
+            <FinancialRow
+              title="Hoje"
+              expected={data.today.expectedRevenue}
+              received={data.today.receivedDeposits}
+              pending={data.today.toReceive}
+            />
+            <FinancialRow
+              title="Semana"
+              expected={data.week.expectedRevenue}
+              received={data.week.received}
+              pending={data.week.toReceive}
+            />
           </div>
-        )}
-        {data.appointments.map((a) => {
-          const st = STATUS_LABEL[a.status] ?? { label: a.status, cls: "bg-sand-50 border-sand-200" };
-          return (
-            <div
-              key={a.id}
-              className="flex flex-col gap-3 border-b border-accent-50 px-4 py-3 transition last:border-0 hover:bg-accent-50 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 min-w-16 items-center justify-center rounded-lg border border-accent-100 bg-accent-50 font-display text-lg text-accent-700">
-                  {formatTime(a.time)}
-                </span>
-                <div>
-                  <p className="text-sm font-semibold text-sand-900">{a.client}</p>
-                  <p className="mt-0.5 text-sm text-sand-500">{a.service}</p>
-                </div>
-              </div>
-              <span className={`w-fit rounded-full border px-3 py-1.5 text-xs font-semibold ${st.cls}`}>
-                {st.label}
-              </span>
-            </div>
-          );
-        })}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-accent-100 bg-white shadow-sm shadow-accent-100/40">
+        <SectionHeader
+          title="Resumo da semana"
+          subtitle={`${formatWeekRange(data.week.start, data.week.end)} · ${data.week.completed} concluído${data.week.completed === 1 ? "" : "s"} · ${data.week.pendingDeposit} sinal${data.week.pendingDeposit === 1 ? "" : "is"} pendente${data.week.pendingDeposit === 1 ? "" : "s"}`}
+        />
+
+        <div className="divide-y divide-accent-50">
+          {data.week.appointments.length === 0 ? (
+            <EmptyState icon={CalendarIcon} text="Nenhum atendimento nesta semana." />
+          ) : (
+            data.week.appointments.map((appointment) => (
+              <WeekAppointmentRow key={appointment.id} appointment={appointment} />
+            ))
+          )}
         </div>
       </section>
     </div>
   );
 }
 
-function formatWeekRange(start: string, end: string) {
-  const fmt = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
-  return `${fmt.format(new Date(start))} até ${fmt.format(new Date(end))}`;
+function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="border-b border-accent-50 px-4 py-3">
+      <h2 className="font-display text-xl text-sand-900">{title}</h2>
+      <p className="mt-0.5 text-sm text-sand-500">{subtitle}</p>
+    </div>
+  );
+}
+
+function TodayRow({ appointment }: { appointment: Dashboard["appointments"][number] }) {
+  const status = STATUS_LABEL[appointment.status] ?? {
+    label: appointment.status,
+    cls: "bg-sand-50 text-sand-500 border-sand-200",
+  };
+
+  return (
+    <div className="flex flex-col gap-3 px-4 py-3 transition hover:bg-accent-50 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex h-11 min-w-16 items-center justify-center rounded-xl border border-accent-100 bg-accent-50 font-display text-lg text-accent-700">
+          {formatTime(appointment.time)}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-sand-900">{appointment.client}</p>
+          <p className="truncate text-sm text-sand-500">{appointment.service}</p>
+        </div>
+      </div>
+      <span className={`w-fit rounded-full border px-3 py-1.5 text-xs font-semibold ${status.cls}`}>
+        {status.label}
+      </span>
+    </div>
+  );
 }
 
 function WeekAppointmentRow({
@@ -335,7 +223,7 @@ function WeekAppointmentRow({
   const paid = appointment.paymentStatus === "paid" || appointment.status === "completed";
 
   return (
-    <div className="grid gap-3 border-b border-accent-50 px-4 py-3 text-sm last:border-0 lg:grid-cols-[145px_1fr_150px_150px] lg:items-center">
+    <div className="grid gap-3 px-4 py-3 text-sm transition hover:bg-accent-50 lg:grid-cols-[150px_1fr_145px_145px] lg:items-center">
       <div>
         <p className="font-semibold text-sand-900">{formatDateTime(appointment.time)}</p>
         <p className="text-xs text-sand-400">{appointment.phone}</p>
@@ -348,15 +236,70 @@ function WeekAppointmentRow({
         {status.label}
       </span>
       <div className="lg:text-right">
-        <p className={paid ? "font-semibold text-accent-700" : "font-semibold text-amber-700"}>
-          {paid ? "Sinal pago" : "Sinal pendente"}
-        </p>
-        <p className="text-xs text-sand-400">
+        <PaymentPill paid={paid} />
+        <p className="mt-1 text-xs text-sand-400">
           {brl(appointment.deposit)} de {brl(appointment.total)}
         </p>
       </div>
     </div>
   );
+}
+
+function PaymentPill({ paid }: { paid: boolean }) {
+  return paid ? (
+    <span className="inline-flex w-fit rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+      Sinal pago
+    </span>
+  ) : (
+    <span className="inline-flex w-fit rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+      Sinal pendente
+    </span>
+  );
+}
+
+function FinancialRow({
+  title,
+  expected,
+  received,
+  pending,
+}: {
+  title: string;
+  expected: number;
+  received: number;
+  pending: number;
+}) {
+  return (
+    <div className="rounded-xl border border-accent-100 bg-accent-50/50 p-3">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-sm font-semibold text-sand-900">{title}</p>
+        <p className="text-xs font-medium text-sand-500">Previsto {brl(expected)}</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg bg-white p-3">
+          <p className="text-[11px] font-semibold uppercase text-sand-400">Recebido</p>
+          <p className="mt-1 font-display text-lg text-accent-700">{brl(received)}</p>
+        </div>
+        <div className="rounded-lg bg-white p-3">
+          <p className="text-[11px] font-semibold uppercase text-sand-400">A receber</p>
+          <p className="mt-1 font-display text-lg text-sand-900">{brl(pending)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, text }: { icon: (props: { className?: string }) => JSX.Element; text: string }) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-6 text-sm text-sand-400">
+      <Icon className="h-5 w-5 text-accent-400" />
+      {text}
+    </div>
+  );
+}
+
+function formatWeekRange(start: string, end: string) {
+  const fmt = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
+  return `${fmt.format(new Date(start))} até ${fmt.format(new Date(end))}`;
 }
 
 function Stat({
@@ -371,82 +314,13 @@ function Stat({
   hint: string;
 }) {
   return (
-    <div className="rounded-lg border border-accent-100 bg-white p-3.5 shadow-sm shadow-accent-100/30 transition hover:-translate-y-0.5 hover:shadow-md">
-      <div className="mb-2.5 flex items-center justify-between">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-50 text-accent-700">
-          <Icon className="h-4 w-4" />
-        </div>
+    <div className="rounded-2xl border border-accent-100 bg-white p-4 shadow-sm shadow-accent-100/30">
+      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-accent-50 text-accent-700">
+        <Icon className="h-4 w-4" />
       </div>
-      <p className="text-[11px] font-semibold uppercase text-sand-400">{label}</p>
-      <p className="mt-1 font-display text-[1.35rem] leading-tight text-sand-900">{value}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-400">{label}</p>
+      <p className="mt-1 font-display text-2xl leading-tight text-sand-900">{value}</p>
       <p className="mt-1 text-xs text-sand-500">{hint}</p>
-    </div>
-  );
-}
-
-function MiniMetric({
-  label,
-  value,
-  tone = "default",
-}: {
-  label: string;
-  value: string;
-  tone?: "default" | "rose";
-}) {
-  const cls =
-    tone === "rose"
-      ? "border-accent-200 bg-accent-50 text-accent-800"
-      : "border-accent-100 bg-white text-sand-900";
-  return (
-    <div className={`rounded-lg border p-3 ${cls}`}>
-      <p className="text-[11px] font-semibold uppercase opacity-70">{label}</p>
-      <p className="mt-1 font-display text-xl leading-tight">{value}</p>
-    </div>
-  );
-}
-
-function DonutChart({ percent, label }: { percent: number; label: string }) {
-  const rounded = Math.round(percent);
-  return (
-    <div className="mx-auto flex h-32 w-32 items-center justify-center rounded-full bg-accent-50">
-      <div
-        className="flex h-28 w-28 items-center justify-center rounded-full"
-        style={{
-          background: `conic-gradient(#985f6f ${rounded * 3.6}deg, #f0e5e8 0deg)`,
-        }}
-      >
-        <div className="flex h-20 w-20 flex-col items-center justify-center rounded-full bg-white text-center shadow-sm">
-          <span className="font-display text-2xl leading-none text-accent-700">{rounded}%</span>
-          <span className="mt-1 text-[10px] font-semibold uppercase text-sand-400">{label}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function FinanceBar({
-  label,
-  value,
-  percent,
-  color,
-}: {
-  label: string;
-  value: string;
-  percent: number;
-  color: string;
-}) {
-  return (
-    <div>
-      <div className="mb-1.5 flex items-center justify-between text-sm">
-        <span className="font-medium text-sand-700">{label}</span>
-        <span className="font-semibold text-sand-900">{value}</span>
-      </div>
-      <div className="h-2.5 overflow-hidden rounded-full bg-sand-100">
-        <div
-          className={`h-full min-w-1 rounded-full ${color}`}
-          style={{ width: `${Math.max(percent, 3)}%` }}
-        />
-      </div>
     </div>
   );
 }
@@ -519,18 +393,6 @@ function ClockIcon({ className }: { className?: string }) {
     <IconBase className={className}>
       <circle cx="12" cy="12" r="8" />
       <path d="M12 8v5l3 2" />
-    </IconBase>
-  );
-}
-
-function ChartIcon({ className }: { className?: string }) {
-  return (
-    <IconBase className={className}>
-      <path d="M4 19V5" />
-      <path d="M4 19h16" />
-      <path d="M8 15v-4" />
-      <path d="M12 15V8" />
-      <path d="M16 15v-6" />
     </IconBase>
   );
 }
