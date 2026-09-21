@@ -391,6 +391,11 @@ export async function adminRoutes(app: FastifyInstance) {
           });
         }
       }
+
+      await prisma.payment.updateMany({
+        where: { appointmentId: existing.id, status: 'pending' },
+        data: { status: 'cancelled' },
+      });
     }
 
     if (parsed.data.status === 'completed' && existing.status !== 'completed') {

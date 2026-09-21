@@ -158,6 +158,7 @@ CREATE TABLE blocked_times (
 --   cancelled       -> cancelado
 --   no_show         -> cliente faltou
 --   expired         -> reserva expirou sem pagamento
+--   removed         -> removido manualmente do painel
 -- token: identificador publico opaco para a cliente acompanhar sem login.
 -- ---------------------------------------------------------------------------
 CREATE TABLE appointments (
@@ -175,7 +176,7 @@ CREATE TABLE appointments (
     total_amount     DECIMAL(10,2) NOT NULL,
     deposit_amount   DECIMAL(10,2) NOT NULL DEFAULT 0,
 
-    status           ENUM('pending_payment','confirmed','completed','cancelled','no_show','expired')
+    status           ENUM('pending_payment','confirmed','completed','cancelled','no_show','expired','removed')
                         NOT NULL DEFAULT 'pending_payment',
     payment_status   ENUM('pending','paid','refunded','failed')
                         NOT NULL DEFAULT 'pending',
