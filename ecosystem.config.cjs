@@ -1,6 +1,6 @@
 // PM2 - roda os DOIS servicos do projeto:
-//   studioflora-api  -> Fastify (porta 3333, definida no .env)
-//   studioflora-web  -> Next.js (porta 3000)
+//   studioflora-api  -> Fastify (porta definida no .env, no servidor: 3007)
+//   studioflora-web  -> Next.js (WEB_PORT ou 3011)
 // Uso:
 //   pm2 startOrReload ecosystem.config.cjs --update-env
 //   pm2 save
@@ -23,7 +23,7 @@ module.exports = {
       script: 'npm',
       args: 'start',
       // Next.js escuta na porta definida por PORT.
-      env: { NODE_ENV: 'production', PORT: '3000' },
+      env: { NODE_ENV: 'production', PORT: process.env.WEB_PORT || '3011' },
       time: true,
       max_restarts: 10,
     },
