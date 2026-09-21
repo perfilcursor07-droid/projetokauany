@@ -145,7 +145,7 @@ export async function createPublicAppointment(input: CreateAppointmentInput) {
 
     // Cliente: reaproveita por telefone dentro do negocio.
     let dbClient = await tx.client.findFirst({
-      where: { businessId, phone: client.phone },
+      where: { businessId, phone: client.phone, deletedAt: null },
     });
     if (!dbClient) {
       dbClient = await tx.client.create({
@@ -200,7 +200,7 @@ export async function getAppointmentByToken(token: string) {
 export async function getPublicAppointmentsByPhone(businessId: bigint, phone: string) {
   const digits = phone.replace(/\D/g, '');
   const client = await prisma.client.findFirst({
-    where: { businessId, phone: digits },
+    where: { businessId, phone: digits, deletedAt: null },
   });
   if (!client) return [];
 

@@ -23,6 +23,7 @@ export default function ClientesPage() {
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function load() {
     try {
@@ -38,6 +39,24 @@ export default function ClientesPage() {
 
   async function open(id: string) {
     setSelected(await api<Detail>(`/api/admin/clients/${id}`, { auth: true }));
+  }
+
+  async function deleteClient() {
+    if (!selected) return;
+    const ok = window.confirm(`Excluir ${selected.client.name} da lista de clientes? O histórico antigo continua salvo.`);
+    if (!ok) return;
+
+    setDeleting(true);
+    setError(null);
+    try {
+      await api(`/api/admin/clients/${selected.client.id}`, { method: "DELETE", auth: true });
+      setSelected(null);
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   const totalNoShows = items.reduce((sum, c) => sum + c.noShowCount, 0);
@@ -157,6 +176,14 @@ export default function ClientesPage() {
               <span className="rounded-lg border border-sand-200 bg-sand-50 px-3 py-1.5 text-sm font-medium text-sand-600">
                 {selected.client.cancelCount} cancelamentos
               </span>
+              <button
+                type="button"
+                onClick={deleteClient}
+                disabled={deleting}
+                className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-600 transition hover:bg-red-100 disabled:opacity-50"
+              >
+                {deleting ? "Excluindo..." : "Excluir cliente"}
+              </button>
             </div>
           </div>
 

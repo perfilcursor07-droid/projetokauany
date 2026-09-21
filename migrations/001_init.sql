@@ -70,6 +70,7 @@ CREATE TABLE clients (
     notes          TEXT NULL,
     no_show_count  INT NOT NULL DEFAULT 0,
     cancel_count   INT NOT NULL DEFAULT 0,
+    deleted_at     DATETIME NULL,
     created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_clients_business_phone (business_id, phone),

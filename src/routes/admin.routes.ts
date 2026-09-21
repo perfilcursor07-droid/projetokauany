@@ -209,6 +209,7 @@ export async function adminRoutes(app: FastifyInstance) {
     return prisma.client.findMany({
       where: {
         businessId,
+        deletedAt: null,
         ...(q ? { OR: [{ name: { contains: q } }, { phone: { contains: q } }] } : {}),
       },
       orderBy: { name: 'asc' },
@@ -219,7 +220,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/clients/:id', async (req, reply) => {
     const businessId = businessIdOf(req);
     const { id } = z.object({ id: z.coerce.bigint() }).parse(req.params);
-    const client = await prisma.client.findFirst({ where: { id, businessId } });
+    const client = await prisma.client.findFirst({ where: { id, businessId, deletedAt: null } });
     if (!client) return reply.code(404).send({ message: 'Cliente nao encontrado' });
 
     const history = await prisma.appointment.findMany({
@@ -244,6 +245,20 @@ export async function adminRoutes(app: FastifyInstance) {
         status: a.status,
       })),
     };
+  });
+
+  app.delete('/clients/:id', async (req, reply) => {
+    const businessId = businessIdOf(req);
+    const { id } = z.object({ id: z.coerce.bigint() }).parse(req.params);
+    const client = await prisma.client.findFirst({ where: { id, businessId, deletedAt: null } });
+    if (!client) return reply.code(404).send({ message: 'Cliente nao encontrado' });
+
+    await prisma.client.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+
+    return { deleted: true };
   });
 
   // ======================= AGENDAMENTOS =================================
