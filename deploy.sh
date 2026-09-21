@@ -1,37 +1,32 @@
-#!/bin/bash
-# ==================================================
-# Script de Deploy Automático - Studio Flora
-# ==================================================
+#!/usr/bin/env bash
+# Deploy do Studio Flora (API Fastify + Frontend Next.js) no servidor.
+# Uso:  bash deploy.sh
+set -euo pipefail
 
-set -e  # Para em caso de erro
+cd "$(dirname "$0")"
 
-echo "🚀 Iniciando deploy..."
+echo "==> Atualizando codigo (git pull)"
+git pull --ff-only origin main
 
-# 1. Atualizar código do GitHub
-echo "📥 Baixando última versão do GitHub..."
-git pull origin main
+echo "==> Instalando dependencias da API"
+npm ci
 
-# 2. Instalar/Atualizar dependências
-echo "📦 Instalando dependências..."
-npm install --production
+echo "==> Gerando Prisma Client"
+npx prisma generate
 
-# 3. Rodar migrations (se houver novas)
-echo "🔄 Executando migrations..."
+echo "==> Rodando migrations"
 npm run migrate
 
-# 4. Compilar TypeScript
-echo "🏗️  Compilando TypeScript..."
+echo "==> Instalando dependencias do frontend"
+cd web
+npm ci
+echo "==> Buildando o frontend (next build)"
 npm run build
+cd ..
 
-# 5. Reiniciar aplicação com PM2
-echo "♻️  Reiniciando aplicação..."
-pm2 restart studioflora
+echo "==> (Re)iniciando PM2"
+pm2 startOrReload ecosystem.config.cjs --update-env
+pm2 save
 
-# 6. Verificar status
-echo "✅ Verificando status..."
-pm2 status studioflora
-
-echo ""
-echo "✅ Deploy concluído com sucesso!"
-echo "📊 Ver logs: pm2 logs studioflora"
-echo "🌐 Testar: curl https://studioflora.site/health"
+echo "==> Deploy concluido."
+pm2 status

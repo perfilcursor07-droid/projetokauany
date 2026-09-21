@@ -1,28 +1,31 @@
-// PM2 Ecosystem Configuration
-// Configuração para gerenciamento de processos Node.js
+// PM2 - roda os DOIS servicos do projeto:
+//   studioflora-api  -> Fastify (porta 3333, definida no .env)
+//   studioflora-web  -> Next.js (porta 3000)
+// Uso:
+//   pm2 startOrReload ecosystem.config.cjs --update-env
+//   pm2 save
+const path = require('path');
 
 module.exports = {
   apps: [
     {
-      name: 'studioflora',
-      script: './dist/server.js',
-      cwd: '/home/studioflora/htdocs/studioflora.site',
-      instances: 1,
-      exec_mode: 'fork',
-      autorestart: true,
-      watch: false,
-      max_memory_restart: '500M',
-      env: {
-        NODE_ENV: 'production',
-        PORT: 3007,
-      },
-      error_file: './logs/pm2-error.log',
-      out_file: './logs/pm2-out.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      merge_logs: true,
-      min_uptime: '10s',
+      name: 'studioflora-api',
+      cwd: __dirname,
+      script: 'npm',
+      args: 'start',
+      env: { NODE_ENV: 'production' },
+      time: true,
       max_restarts: 10,
-      restart_delay: 4000,
+    },
+    {
+      name: 'studioflora-web',
+      cwd: path.join(__dirname, 'web'),
+      script: 'npm',
+      args: 'start',
+      // Next.js escuta na porta definida por PORT.
+      env: { NODE_ENV: 'production', PORT: '3000' },
+      time: true,
+      max_restarts: 10,
     },
   ],
 };
