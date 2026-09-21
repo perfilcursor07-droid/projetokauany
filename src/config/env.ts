@@ -32,6 +32,9 @@ const schema = z.object({
   PAYMENTS_MODE: z.enum(['pagbank', 'fake']).default('pagbank'),
   PAGBANK_BASE_URL: z.string().url().default('https://sandbox.api.pagseguro.com'),
   PAGBANK_TOKEN: z.string().min(1, 'Defina o PAGBANK_TOKEN'),
+  // Documento da conta/empresa usado quando o cliente nao informa CPF/CNPJ.
+  // O PagBank exige customer.tax_id no endpoint /orders.
+  PAGBANK_CUSTOMER_TAX_ID: z.string().optional().default(''),
 
   RESERVATION_MINUTES: z.coerce.number().default(5),
 });

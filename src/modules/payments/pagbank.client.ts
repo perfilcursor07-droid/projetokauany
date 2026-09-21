@@ -104,13 +104,14 @@ export async function createPixOrder(params: CreatePixOrderParams): Promise<PagB
   const email =
     params.customer.email?.trim() ||
     `${(params.customer.phone || 'cliente').replace(/\D/g, '')}@naoinformado.com`;
+  const taxId = (params.customer.taxId || env.PAGBANK_CUSTOMER_TAX_ID).replace(/\D/g, '');
 
   const body: Record<string, unknown> = {
     reference_id: params.referenceId,
     customer: {
       name: params.customer.name,
       email,
-      ...(params.customer.taxId ? { tax_id: params.customer.taxId.replace(/\D/g, '') } : {}),
+      ...(taxId ? { tax_id: taxId } : {}),
       ...(parsePhone(params.customer.phone) ? { phones: parsePhone(params.customer.phone) } : {}),
     },
     items: [
