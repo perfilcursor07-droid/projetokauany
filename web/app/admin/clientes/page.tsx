@@ -10,6 +10,10 @@ type Client = {
   email: string | null;
   noShowCount: number;
   cancelCount: number;
+  appointmentCount: number;
+  completedCount: number;
+  totalSpent: number;
+  lastAppointmentAt: string | null;
 };
 
 type Detail = {
@@ -61,6 +65,7 @@ export default function ClientesPage() {
 
   const totalNoShows = items.reduce((sum, c) => sum + c.noShowCount, 0);
   const totalCancels = items.reduce((sum, c) => sum + c.cancelCount, 0);
+  const totalCompleted = items.reduce((sum, c) => sum + c.completedCount, 0);
 
   return (
     <div className="space-y-4">
@@ -77,8 +82,9 @@ export default function ClientesPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
+          <div className="grid grid-cols-2 gap-2 sm:min-w-[460px] sm:grid-cols-4">
             <Summary label="Clientes" value={String(items.length)} />
+            <Summary label="Concluídos" value={String(totalCompleted)} tone="success" />
             <Summary label="Faltas" value={String(totalNoShows)} tone="warn" />
             <Summary label="Cancel." value={String(totalCancels)} tone="rose" />
           </div>
@@ -100,7 +106,7 @@ export default function ClientesPage() {
       {error && <p className="mb-4 text-red-600">{error}</p>}
 
       <section className="overflow-hidden rounded-lg border border-accent-100 bg-white shadow-sm shadow-accent-100/40">
-        <div className="grid grid-cols-[1.4fr_1fr_0.8fr_120px] gap-3 border-b border-accent-100 bg-accent-50 px-4 py-2.5 text-[11px] font-semibold uppercase text-accent-700 max-lg:hidden">
+        <div className="grid grid-cols-[1.3fr_1fr_0.9fr_0.9fr_100px] gap-3 border-b border-accent-100 bg-accent-50 px-4 py-2.5 text-[11px] font-semibold uppercase text-accent-700 max-lg:hidden">
           <span>Cliente</span>
           <span>Contato</span>
           <span>Ocorrências</span>
@@ -113,7 +119,7 @@ export default function ClientesPage() {
             <button
               key={c.id}
               onClick={() => open(c.id)}
-              className={`grid w-full gap-3 border-b border-accent-50 px-4 py-3 text-left transition last:border-0 hover:bg-accent-50 lg:grid-cols-[1.4fr_1fr_0.8fr_120px] lg:items-center ${
+              className={`grid w-full gap-3 border-b border-accent-50 px-4 py-3 text-left transition last:border-0 hover:bg-accent-50 lg:grid-cols-[1.3fr_1fr_0.9fr_0.9fr_100px] lg:items-center ${
                 active ? "bg-accent-50" : ""
               }`}
             >
@@ -130,6 +136,12 @@ export default function ClientesPage() {
               <div className="min-w-0 text-sm">
                 <p className="truncate font-medium text-sand-700">{c.phone}</p>
                 <p className="truncate text-xs text-sand-400">{c.email || "Sem e-mail"}</p>
+              </div>
+
+              <div className="flex flex-wrap gap-2 text-xs">
+                <Badge label={`${c.completedCount} concluídos`} tone={c.completedCount > 0 ? "success" : "muted"} />
+                <Badge label={`${c.appointmentCount} total`} tone="muted" />
+                <span className="text-xs font-semibold text-sand-500">{brl(c.totalSpent)}</span>
               </div>
 
               <div className="flex flex-wrap gap-2 text-xs">
@@ -170,6 +182,9 @@ export default function ClientesPage() {
               <span className="rounded-lg border border-accent-200 bg-accent-50 px-3 py-1.5 text-sm font-semibold text-accent-700">
                 Total gasto: {brl(selected.totalSpent)}
               </span>
+              <span className="rounded-lg border border-accent-200 bg-white px-3 py-1.5 text-sm font-semibold text-accent-700">
+                {selected.client.completedCount} concluídos
+              </span>
               <span className="rounded-lg border border-sand-200 bg-sand-50 px-3 py-1.5 text-sm font-medium text-sand-600">
                 {selected.client.noShowCount} faltas
               </span>
@@ -193,10 +208,11 @@ export default function ClientesPage() {
               {selected.history.map((h) => (
                 <div
                   key={h.id}
-                  className="grid gap-2 border-b border-accent-50 px-4 py-3 text-sm last:border-0 md:grid-cols-[1fr_1.2fr_140px]"
+                  className="grid gap-2 border-b border-accent-50 px-4 py-3 text-sm last:border-0 md:grid-cols-[1fr_1.2fr_130px_120px] md:items-center"
                 >
                   <span className="font-medium text-sand-700">{formatDateTime(h.date)}</span>
                   <span className="text-sand-500">{h.service}</span>
+                  <span className="md:text-right"><StatusBadge status={h.status} /></span>
                   <span className="font-semibold text-sand-900 md:text-right">{brl(h.amount)}</span>
                 </div>
               ))}
@@ -218,14 +234,16 @@ function Summary({
 }: {
   label: string;
   value: string;
-  tone?: "default" | "warn" | "rose";
+  tone?: "default" | "warn" | "rose" | "success";
 }) {
   const cls =
-    tone === "warn"
-      ? "border-amber-200 bg-amber-50 text-amber-700"
-      : tone === "rose"
-        ? "border-accent-200 bg-accent-50 text-accent-700"
-        : "border-accent-100 bg-white text-sand-900";
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : tone === "warn"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : tone === "rose"
+          ? "border-accent-200 bg-accent-50 text-accent-700"
+          : "border-accent-100 bg-white text-sand-900";
   return (
     <div className={`rounded-lg border p-3 ${cls}`}>
       <p className="text-[11px] font-semibold uppercase opacity-70">{label}</p>
@@ -234,14 +252,29 @@ function Summary({
   );
 }
 
-function Badge({ label, tone }: { label: string; tone: "muted" | "warn" | "danger" }) {
+function Badge({ label, tone }: { label: string; tone: "muted" | "warn" | "danger" | "success" }) {
   const cls =
-    tone === "danger"
-      ? "border-red-200 bg-red-50 text-red-600"
-      : tone === "warn"
-        ? "border-amber-200 bg-amber-50 text-amber-700"
-        : "border-sand-200 bg-sand-50 text-sand-500";
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : tone === "danger"
+        ? "border-red-200 bg-red-50 text-red-600"
+        : tone === "warn"
+          ? "border-amber-200 bg-amber-50 text-amber-700"
+          : "border-sand-200 bg-sand-50 text-sand-500";
   return <span className={`rounded-full border px-2.5 py-1 font-medium ${cls}`}>{label}</span>;
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    pending_payment: { label: "Aguardando sinal", cls: "border-amber-200 bg-amber-50 text-amber-700" },
+    confirmed: { label: "Confirmado", cls: "border-accent-200 bg-accent-50 text-accent-700" },
+    completed: { label: "Concluído", cls: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+    cancelled: { label: "Cancelado", cls: "border-sand-200 bg-sand-50 text-sand-500" },
+    no_show: { label: "Faltou", cls: "border-red-200 bg-red-50 text-red-600" },
+    expired: { label: "Expirado", cls: "border-sand-200 bg-sand-50 text-sand-500" },
+  };
+  const item = map[status] ?? { label: status, cls: "border-sand-200 bg-sand-50 text-sand-500" };
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${item.cls}`}>{item.label}</span>;
 }
 
 function IconBase({

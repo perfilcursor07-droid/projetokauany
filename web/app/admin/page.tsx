@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, brl, formatTime } from "@/lib/api";
+import { api, brl, formatDateTime, formatTime } from "@/lib/api";
 
 type Dashboard = {
   today: {
@@ -9,6 +9,28 @@ type Dashboard = {
     expectedRevenue: number;
     receivedDeposits: number;
     toReceive: number;
+  };
+  week: {
+    start: string;
+    end: string;
+    count: number;
+    depositPaid: number;
+    pendingDeposit: number;
+    completed: number;
+    expectedRevenue: number;
+    received: number;
+    toReceive: number;
+    appointments: {
+      id: string;
+      time: string;
+      client: string;
+      phone: string;
+      service: string;
+      status: string;
+      paymentStatus: string;
+      total: number;
+      deposit: number;
+    }[];
   };
   next: {
     time: string;
@@ -46,7 +68,7 @@ export default function DashboardPage() {
   }, []);
 
   if (error) return <p className="text-red-600">{error}</p>;
-  if (!data) return <p className="text-sand-400">Carregando…</p>;
+  if (!data) return <p className="text-sand-400">Carregandoâ€¦</p>;
 
   const maxFinancial = Math.max(
     data.today.expectedRevenue,
@@ -111,6 +133,63 @@ export default function DashboardPage() {
           value={brl(data.today.toReceive)}
           hint="Saldo pendente"
         />
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat
+          icon={CalendarIcon}
+          label="Semana"
+          value={String(data.week.count)}
+          hint="Agendados na semana"
+        />
+        <Stat
+          icon={CheckIcon}
+          label="Sinais pagos"
+          value={String(data.week.depositPaid)}
+          hint="Clientes que pagaram sinal"
+        />
+        <Stat
+          icon={ClockIcon}
+          label="Sinais pendentes"
+          value={String(data.week.pendingDeposit)}
+          hint="Aguardando pagamento"
+        />
+        <Stat
+          icon={WalletIcon}
+          label="Recebido semana"
+          value={brl(data.week.received)}
+          hint="Sinais e atendimentos"
+        />
+      </section>
+
+      <section className="rounded-lg border border-accent-100 bg-white p-4 shadow-sm shadow-accent-100/40">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="font-display text-xl text-sand-900">Resumo da semana</h2>
+            <p className="mt-0.5 text-sm text-sand-500">
+              {formatWeekRange(data.week.start, data.week.end)} · quem agendou e situação do sinal
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full border border-accent-200 bg-accent-50 px-3 py-1 font-semibold text-accent-700">
+              {data.week.completed} concluídos
+            </span>
+            <span className="rounded-full border border-sand-200 bg-sand-50 px-3 py-1 font-semibold text-sand-600">
+              {brl(data.week.toReceive)} a receber
+            </span>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-lg border border-accent-100">
+          {data.week.appointments.length === 0 ? (
+            <div className="flex items-center gap-3 p-5 text-sm text-sand-400">
+              <CalendarIcon className="h-5 w-5 text-accent-400" />
+              Nenhum atendimento nesta semana.
+            </div>
+          ) : (
+            data.week.appointments.map((a) => <WeekAppointmentRow key={a.id} appointment={a} />)
+          )}
+        </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
@@ -235,6 +314,47 @@ export default function DashboardPage() {
         })}
         </div>
       </section>
+    </div>
+  );
+}
+
+function formatWeekRange(start: string, end: string) {
+  const fmt = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" });
+  return `${fmt.format(new Date(start))} até ${fmt.format(new Date(end))}`;
+}
+
+function WeekAppointmentRow({
+  appointment,
+}: {
+  appointment: Dashboard["week"]["appointments"][number];
+}) {
+  const status = STATUS_LABEL[appointment.status] ?? {
+    label: appointment.status,
+    cls: "bg-sand-50 text-sand-500 border-sand-200",
+  };
+  const paid = appointment.paymentStatus === "paid" || appointment.status === "completed";
+
+  return (
+    <div className="grid gap-3 border-b border-accent-50 px-4 py-3 text-sm last:border-0 lg:grid-cols-[145px_1fr_150px_150px] lg:items-center">
+      <div>
+        <p className="font-semibold text-sand-900">{formatDateTime(appointment.time)}</p>
+        <p className="text-xs text-sand-400">{appointment.phone}</p>
+      </div>
+      <div className="min-w-0">
+        <p className="truncate font-semibold text-sand-900">{appointment.client}</p>
+        <p className="truncate text-xs text-sand-500">{appointment.service}</p>
+      </div>
+      <span className={`w-fit rounded-full border px-3 py-1.5 text-xs font-semibold ${status.cls}`}>
+        {status.label}
+      </span>
+      <div className="lg:text-right">
+        <p className={paid ? "font-semibold text-accent-700" : "font-semibold text-amber-700"}>
+          {paid ? "Sinal pago" : "Sinal pendente"}
+        </p>
+        <p className="text-xs text-sand-400">
+          {brl(appointment.deposit)} de {brl(appointment.total)}
+        </p>
+      </div>
     </div>
   );
 }

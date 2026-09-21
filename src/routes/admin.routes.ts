@@ -80,15 +80,38 @@ export async function adminRoutes(app: FastifyInstance) {
     const dayEnd = new Date(now);
     dayEnd.setHours(23, 59, 59, 999);
 
-    const todays = await prisma.appointment.findMany({
-      where: {
-        businessId,
-        startAt: { gte: dayStart, lte: dayEnd },
-        status: { in: ['confirmed', 'completed', 'pending_payment'] },
-      },
-      include: { service: true, client: { select: { name: true } } },
-      orderBy: { startAt: 'asc' },
-    });
+    const weekStart = new Date(dayStart);
+    const weekday = weekStart.getDay();
+    const daysFromMonday = weekday === 0 ? 6 : weekday - 1;
+    weekStart.setDate(weekStart.getDate() - daysFromMonday);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+
+    const [todays, weekly] = await Promise.all([
+      prisma.appointment.findMany({
+        where: {
+          businessId,
+          startAt: { gte: dayStart, lte: dayEnd },
+          status: { in: ['confirmed', 'completed', 'pending_payment'] },
+        },
+        include: { service: true, client: { select: { name: true } } },
+        orderBy: { startAt: 'asc' },
+      }),
+      prisma.appointment.findMany({
+        where: {
+          businessId,
+          startAt: { gte: weekStart, lte: weekEnd },
+          status: { not: 'removed' },
+        },
+        include: {
+          service: { select: { name: true } },
+          client: { select: { name: true, phone: true } },
+        },
+        orderBy: { startAt: 'asc' },
+      }),
+    ]);
 
     const expected = todays.reduce((sum, a) => sum + Number(a.totalAmount), 0);
     const received = todays.reduce((sum, a) => {
@@ -96,6 +119,18 @@ export async function adminRoutes(app: FastifyInstance) {
       if (a.paymentStatus === 'paid') return sum + Number(a.depositAmount);
       return sum;
     }, 0);
+
+    const weeklyActive = weekly.filter((a) => a.status !== 'expired');
+    const weeklyExpected = weeklyActive.reduce((sum, a) => sum + Number(a.totalAmount), 0);
+    const weeklyReceived = weeklyActive.reduce((sum, a) => {
+      if (a.status === 'completed') return sum + Number(a.totalAmount);
+      if (a.paymentStatus === 'paid') return sum + Number(a.depositAmount);
+      return sum;
+    }, 0);
+    const weeklyDepositPaid = weeklyActive.filter((a) => a.paymentStatus === 'paid').length;
+    const weeklyPendingDeposit = weeklyActive.filter(
+      (a) => a.status === 'pending_payment' && a.paymentStatus !== 'paid'
+    ).length;
 
     const next = todays.find((a) => a.startAt > now) ?? null;
 
@@ -105,6 +140,28 @@ export async function adminRoutes(app: FastifyInstance) {
         expectedRevenue: expected,
         receivedDeposits: received,
         toReceive: Math.max(expected - received, 0),
+      },
+      week: {
+        start: weekStart,
+        end: weekEnd,
+        count: weeklyActive.length,
+        depositPaid: weeklyDepositPaid,
+        pendingDeposit: weeklyPendingDeposit,
+        completed: weeklyActive.filter((a) => a.status === 'completed').length,
+        expectedRevenue: weeklyExpected,
+        received: weeklyReceived,
+        toReceive: Math.max(weeklyExpected - weeklyReceived, 0),
+        appointments: weeklyActive.map((a) => ({
+          id: a.id,
+          time: a.startAt,
+          client: a.client.name,
+          phone: a.client.phone,
+          service: a.service.name,
+          status: a.status,
+          paymentStatus: a.paymentStatus,
+          total: Number(a.totalAmount),
+          deposit: Number(a.depositAmount),
+        })),
       },
       next: next
         ? {
@@ -206,14 +263,34 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/clients', async (req) => {
     const businessId = businessIdOf(req);
     const { q } = z.object({ q: z.string().optional() }).parse(req.query);
-    return prisma.client.findMany({
+    const clients = await prisma.client.findMany({
       where: {
         businessId,
         deletedAt: null,
         ...(q ? { OR: [{ name: { contains: q } }, { phone: { contains: q } }] } : {}),
       },
+      include: {
+        appointments: {
+          where: { status: { not: 'removed' } },
+          select: { status: true, totalAmount: true, startAt: true },
+          orderBy: { startAt: 'desc' },
+        },
+      },
       orderBy: { name: 'asc' },
       take: 200,
+    });
+
+    return clients.map((client) => {
+      const completed = client.appointments.filter((a) => a.status === 'completed');
+      const lastAppointment = client.appointments[0] ?? null;
+      const { appointments, ...base } = client;
+      return {
+        ...base,
+        appointmentCount: appointments.filter((a) => a.status !== 'expired').length,
+        completedCount: completed.length,
+        totalSpent: completed.reduce((sum, a) => sum + Number(a.totalAmount), 0),
+        lastAppointmentAt: lastAppointment?.startAt ?? null,
+      };
     });
   });
 
@@ -224,7 +301,7 @@ export async function adminRoutes(app: FastifyInstance) {
     if (!client) return reply.code(404).send({ message: 'Cliente nao encontrado' });
 
     const history = await prisma.appointment.findMany({
-      where: { clientId: id },
+      where: { clientId: id, status: { not: 'removed' } },
       include: { service: { select: { name: true } } },
       orderBy: { startAt: 'desc' },
       take: 50,
