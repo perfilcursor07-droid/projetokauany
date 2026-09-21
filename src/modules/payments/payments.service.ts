@@ -103,18 +103,24 @@ export async function createPixForAppointment(token: string) {
     return { payment, appointment };
   }
 
-  const order = await createPixOrder({
-    referenceId: `appt-${appointment.id}-${Date.now()}`,
-    amountCents: depositCents,
-    description: `Sinal - ${appointment.service.name}`,
-    customer: {
-      name: appointment.client.name,
-      email: appointment.client.email,
-      phone: appointment.client.phone,
-    },
-    expiresInMinutes: env.RESERVATION_MINUTES,
-    notificationUrl: `${env.PUBLIC_API_URL.replace(/\/$/, '')}/api/webhooks/pagbank`,
-  });
+  let order;
+  try {
+    order = await createPixOrder({
+      referenceId: `appt-${appointment.id}-${Date.now()}`,
+      amountCents: depositCents,
+      description: `Sinal - ${appointment.service.name}`,
+      customer: {
+        name: appointment.client.name,
+        email: appointment.client.email,
+        phone: appointment.client.phone,
+      },
+      expiresInMinutes: env.RESERVATION_MINUTES,
+      notificationUrl: `${env.PUBLIC_API_URL.replace(/\/$/, '')}/api/webhooks/pagbank`,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Falha ao criar cobrança Pix';
+    throw new PaymentError(502, `PagBank: ${message}`);
+  }
 
   const qr = extractQrCode(order);
   const expiresAt = qr?.expirationDate ? new Date(qr.expirationDate) : appointment.expiresAt;

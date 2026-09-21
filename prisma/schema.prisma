@@ -185,7 +185,7 @@ model Payment {
   amount           Decimal   @db.Decimal(10, 2)
   status           String    @default("pending")
   qrCodeText       String?   @map("qr_code_text") @db.Text
-  qrCodeImageUrl   String?   @map("qr_code_image_url") @db.VarChar(500)
+  qrCodeImageUrl   String?   @map("qr_code_image_url") @db.Text
   expiresAt        DateTime? @map("expires_at") @db.DateTime(0)
   paidAt           DateTime? @map("paid_at") @db.DateTime(0)
   rawResponse      Json?     @map("raw_response")
