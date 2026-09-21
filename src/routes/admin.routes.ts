@@ -190,7 +190,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   const serviceSchema = z.object({
     name: z.string().min(2),
-    description: z.string().optional().nullable(),
+    description: z.string().max(1000).optional().nullable(),
     price: z.number().positive(),
     depositType: z.enum(['none', 'fixed', 'percentage']).default('none'),
     depositValue: z.number().min(0).default(0),
@@ -209,8 +209,8 @@ export async function adminRoutes(app: FastifyInstance) {
     const created = await prisma.service.create({
       data: {
         businessId,
-        name: s.name,
-        description: s.description ?? null,
+        name: s.name.trim(),
+        description: s.description?.trim() || null,
         price: new Prisma.Decimal(s.price),
         depositType: s.depositType,
         depositValue: new Prisma.Decimal(s.depositValue),
@@ -236,8 +236,8 @@ export async function adminRoutes(app: FastifyInstance) {
     const updated = await prisma.service.update({
       where: { id },
       data: {
-        ...(s.name !== undefined ? { name: s.name } : {}),
-        ...(s.description !== undefined ? { description: s.description } : {}),
+        ...(s.name !== undefined ? { name: s.name.trim() } : {}),
+        ...(s.description !== undefined ? { description: s.description?.trim() || null } : {}),
         ...(s.price !== undefined ? { price: new Prisma.Decimal(s.price) } : {}),
         ...(s.depositType !== undefined ? { depositType: s.depositType } : {}),
         ...(s.depositValue !== undefined ? { depositValue: new Prisma.Decimal(s.depositValue) } : {}),

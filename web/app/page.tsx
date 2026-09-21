@@ -458,6 +458,11 @@ export default function BookingPage() {
                   >
                     <div>
                       <p className="font-medium text-[#633043]">{s.name}</p>
+                      {s.description && (
+                        <p className="mt-1 max-w-[13rem] text-xs leading-relaxed text-[#8f6272] sm:max-w-xs">
+                          {s.description}
+                        </p>
+                      )}
                       <p className="mt-1 text-xs text-[#a0697d]">
                         {durationLabel(s.durationMinutes)}
                         {s.depositAmount > 0 && ` · sinal ${brl(s.depositAmount)}`}

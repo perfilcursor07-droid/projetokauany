@@ -6,6 +6,7 @@ import { api, brl } from "@/lib/api";
 type Service = {
   id: string;
   name: string;
+  description: string | null;
   price: string;
   durationMinutes: number;
   depositType: string;
@@ -16,6 +17,7 @@ type Service = {
 
 const empty = {
   name: "",
+  description: "",
   price: "",
   durationMinutes: "",
   depositType: "fixed",
@@ -53,6 +55,7 @@ export default function ServicosPage() {
     setShowForm(true);
     setForm({
       name: s.name,
+      description: s.description ?? "",
       price: String(s.price),
       durationMinutes: String(s.durationMinutes),
       depositType: s.depositType,
@@ -69,7 +72,8 @@ export default function ServicosPage() {
         method: editingId ? "PATCH" : "POST",
         auth: true,
         body: JSON.stringify({
-          name: form.name,
+          name: form.name.trim(),
+          description: form.description.trim() || null,
           price: Number(form.price),
           durationMinutes: Number(form.durationMinutes),
           depositType: form.depositType,
@@ -153,6 +157,12 @@ export default function ServicosPage() {
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Input label="Nome" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
+            <Textarea
+              label="Observação"
+              value={form.description}
+              onChange={(v) => setForm({ ...form, description: v })}
+              placeholder="Ex.: Ideal para manutenção do brilho, inclui acabamento..."
+            />
             <Input label="Preço (R$)" type="number" value={form.price} onChange={(v) => setForm({ ...form, price: v })} />
             <Input label="Duração (min)" type="number" value={form.durationMinutes} onChange={(v) => setForm({ ...form, durationMinutes: v })} />
             <Input label="Intervalo após (min)" type="number" value={form.bufferMinutes} onChange={(v) => setForm({ ...form, bufferMinutes: v })} />
@@ -205,6 +215,9 @@ export default function ServicosPage() {
               <p className={`font-medium ${s.active ? "text-sand-900" : "text-sand-400 line-through"}`}>
                 {s.name}
               </p>
+              {s.description && (
+                <p className="mt-1 max-w-2xl text-sm text-sand-600">{s.description}</p>
+              )}
               <p className="mt-0.5 text-xs text-sand-500">
                 {s.durationMinutes}min · {brl(Number(s.price))}
                 {s.depositType !== "none" &&
@@ -293,6 +306,31 @@ function SaveIcon({ className }: { className?: string }) {
       <path d="M17 21v-8H7v8" />
       <path d="M7 3v5h8" />
     </IconBase>
+  );
+}
+
+function Textarea({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="block sm:col-span-2">
+      <span className="mb-1 block text-xs font-medium text-sand-600">{label}</span>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        rows={3}
+        className="w-full resize-none rounded-lg border border-sand-300 px-4 py-2.5 outline-none focus:border-sand-500"
+      />
+    </label>
   );
 }
 
