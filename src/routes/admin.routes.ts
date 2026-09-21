@@ -61,6 +61,19 @@ type ExpenseRow = {
   spent_at: Date;
 };
 
+type ServiceRow = {
+  id: bigint;
+  name: string;
+  description: string | null;
+  price: Prisma.Decimal;
+  depositType: string;
+  depositValue: Prisma.Decimal;
+  durationMinutes: number;
+  bufferMinutes: number;
+  sortOrder: number;
+  active: number | boolean;
+};
+
 type FinancialCategoryRow = {
   id: bigint;
   name: string;
@@ -185,7 +198,35 @@ export async function adminRoutes(app: FastifyInstance) {
   // ======================= SERVICOS =====================================
   app.get('/services', async (req) => {
     const businessId = businessIdOf(req);
-    return prisma.service.findMany({ where: { businessId }, orderBy: { name: 'asc' } });
+    const services = await prisma.$queryRaw<ServiceRow[]>`
+      SELECT
+        id,
+        name,
+        description,
+        price,
+        deposit_type AS depositType,
+        deposit_value AS depositValue,
+        duration_minutes AS durationMinutes,
+        buffer_minutes AS bufferMinutes,
+        sort_order AS sortOrder,
+        active
+      FROM services
+      WHERE business_id = ${businessId}
+      ORDER BY sort_order ASC, name ASC
+    `;
+
+    return services.map((s) => ({
+      id: s.id.toString(),
+      name: s.name,
+      description: s.description,
+      price: Number(s.price),
+      depositType: s.depositType,
+      depositValue: Number(s.depositValue),
+      durationMinutes: s.durationMinutes,
+      bufferMinutes: s.bufferMinutes,
+      sortOrder: s.sortOrder,
+      active: Boolean(s.active),
+    }));
   });
 
   const serviceSchema = z.object({
@@ -196,6 +237,7 @@ export async function adminRoutes(app: FastifyInstance) {
     depositValue: z.number().min(0).default(0),
     durationMinutes: z.number().int().positive(),
     bufferMinutes: z.number().int().min(0).default(0),
+    sortOrder: z.number().int().min(0).optional(),
     active: z.boolean().default(true),
   });
 
@@ -206,6 +248,11 @@ export async function adminRoutes(app: FastifyInstance) {
       return reply.code(400).send({ message: 'Dados invalidos', issues: parsed.error.flatten() });
     }
     const s = parsed.data;
+    const [last] = await prisma.$queryRaw<Array<{ sortOrder: number | null }>>`
+      SELECT MAX(sort_order) AS sortOrder
+      FROM services
+      WHERE business_id = ${businessId}
+    `;
     const created = await prisma.service.create({
       data: {
         businessId,
@@ -219,6 +266,12 @@ export async function adminRoutes(app: FastifyInstance) {
         active: s.active,
       },
     });
+    await prisma.$executeRaw`
+      UPDATE services
+      SET sort_order = ${s.sortOrder ?? (last?.sortOrder ?? 0) + 10}
+      WHERE id = ${created.id}
+        AND business_id = ${businessId}
+    `;
     return reply.code(201).send(created);
   });
 
@@ -246,7 +299,52 @@ export async function adminRoutes(app: FastifyInstance) {
         ...(s.active !== undefined ? { active: s.active } : {}),
       },
     });
+    if (s.sortOrder !== undefined) {
+      await prisma.$executeRaw`
+        UPDATE services
+        SET sort_order = ${s.sortOrder}
+        WHERE id = ${id}
+          AND business_id = ${businessId}
+      `;
+    }
     return updated;
+  });
+
+  app.put('/services/order', async (req, reply) => {
+    const businessId = businessIdOf(req);
+    const parsed = z
+      .object({
+        ids: z.array(z.coerce.bigint()).min(1),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ message: 'Dados invalidos', issues: parsed.error.flatten() });
+    }
+
+    const uniqueIds = [...new Set(parsed.data.ids.map((id) => id.toString()))].map((id) => BigInt(id));
+    if (uniqueIds.length !== parsed.data.ids.length) {
+      return reply.code(400).send({ message: 'A lista de servicos possui itens repetidos.' });
+    }
+
+    const count = await prisma.service.count({
+      where: { businessId, id: { in: uniqueIds } },
+    });
+    if (count !== uniqueIds.length) {
+      return reply.code(404).send({ message: 'Um ou mais servicos nao foram encontrados.' });
+    }
+
+    await prisma.$transaction(
+      uniqueIds.map((id, index) =>
+        prisma.$executeRaw`
+          UPDATE services
+          SET sort_order = ${(index + 1) * 10}
+          WHERE id = ${id}
+            AND business_id = ${businessId}
+        `
+      )
+    );
+
+    return { saved: true };
   });
 
   app.delete('/services/:id', async (req, reply) => {

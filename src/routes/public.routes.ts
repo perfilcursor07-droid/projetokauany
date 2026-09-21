@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { resolvePublicBusiness } from '../lib/business.js';
 import { getAvailableSlots } from '../modules/availability/availability.service.js';
@@ -33,6 +34,16 @@ type PublicBioLinkRow = {
   url: string | null;
   type: string;
   sortOrder: number;
+};
+
+type PublicServiceRow = {
+  id: bigint;
+  name: string;
+  description: string | null;
+  price: Prisma.Decimal;
+  depositType: string;
+  depositValue: Prisma.Decimal;
+  durationMinutes: number;
 };
 
 export async function publicRoutes(app: FastifyInstance) {
@@ -96,10 +107,20 @@ export async function publicRoutes(app: FastifyInstance) {
     const business = await resolvePublicBusiness(slug);
     if (!business) return reply.code(404).send({ message: 'Negocio nao encontrado' });
 
-    const services = await prisma.service.findMany({
-      where: { businessId: business.id, active: true },
-      orderBy: { price: 'asc' },
-    });
+    const services = await prisma.$queryRaw<PublicServiceRow[]>`
+      SELECT
+        id,
+        name,
+        description,
+        price,
+        deposit_type AS depositType,
+        deposit_value AS depositValue,
+        duration_minutes AS durationMinutes
+      FROM services
+      WHERE business_id = ${business.id}
+        AND active = TRUE
+      ORDER BY sort_order ASC, price ASC, name ASC
+    `;
 
     return {
       business: {

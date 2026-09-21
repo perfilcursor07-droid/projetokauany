@@ -12,6 +12,7 @@ type Service = {
   depositType: string;
   depositValue: string;
   bufferMinutes: number;
+  sortOrder: number;
   active: boolean;
 };
 
@@ -95,6 +96,28 @@ export default function ServicosPage() {
       body: JSON.stringify({ active: !s.active }),
     });
     load();
+  }
+
+  async function moveService(index: number, direction: -1 | 1) {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= items.length) return;
+
+    const next = [...items];
+    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+    setItems(next);
+    setError(null);
+
+    try {
+      await api("/api/admin/services/order", {
+        method: "PUT",
+        auth: true,
+        body: JSON.stringify({ ids: next.map((item) => item.id) }),
+      });
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+      await load();
+    }
   }
 
   return (
@@ -204,7 +227,7 @@ export default function ServicosPage() {
       )}
 
       <div className="overflow-hidden rounded-lg border border-accent-100 bg-white shadow-sm shadow-accent-100/40">
-        {items.map((s) => (
+        {items.map((s, index) => (
           <div
             key={s.id}
             className={`flex flex-col gap-4 border-b border-accent-50 px-5 py-4 transition last:border-0 hover:bg-accent-50/60 sm:flex-row sm:items-center sm:justify-between ${
@@ -225,6 +248,29 @@ export default function ServicosPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <div className="flex rounded-lg border border-sand-300">
+                <button
+                  type="button"
+                  onClick={() => moveService(index, -1)}
+                  disabled={index === 0}
+                  title="Subir serviço"
+                  aria-label={`Subir ${s.name}`}
+                  className="inline-flex items-center justify-center px-2.5 py-1.5 text-sand-700 hover:bg-sand-50 disabled:cursor-not-allowed disabled:text-sand-300 disabled:hover:bg-transparent"
+                >
+                  <ArrowUpIcon className="h-3.5 w-3.5" />
+                </button>
+                <div className="w-px bg-sand-200" />
+                <button
+                  type="button"
+                  onClick={() => moveService(index, 1)}
+                  disabled={index === items.length - 1}
+                  title="Descer serviço"
+                  aria-label={`Descer ${s.name}`}
+                  className="inline-flex items-center justify-center px-2.5 py-1.5 text-sand-700 hover:bg-sand-50 disabled:cursor-not-allowed disabled:text-sand-300 disabled:hover:bg-transparent"
+                >
+                  <ArrowDownIcon className="h-3.5 w-3.5" />
+                </button>
+              </div>
               <button
                 onClick={() => edit(s)}
                 className="inline-flex items-center gap-2 rounded-lg border border-sand-300 px-3 py-1.5 text-xs font-semibold text-sand-700 hover:bg-sand-50"
@@ -305,6 +351,22 @@ function SaveIcon({ className }: { className?: string }) {
       <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
       <path d="M17 21v-8H7v8" />
       <path d="M7 3v5h8" />
+    </IconBase>
+  );
+}
+
+function ArrowUpIcon({ className }: { className?: string }) {
+  return (
+    <IconBase className={className}>
+      <path d="m18 15-6-6-6 6" />
+    </IconBase>
+  );
+}
+
+function ArrowDownIcon({ className }: { className?: string }) {
+  return (
+    <IconBase className={className}>
+      <path d="m6 9 6 6 6-6" />
     </IconBase>
   );
 }

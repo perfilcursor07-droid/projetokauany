@@ -374,31 +374,35 @@ export default function BookingPage() {
       }`}
     >
       <div className="mx-auto max-w-lg">
-        <header className="mb-4 flex items-center gap-3 rounded-2xl border border-[#f5c9d7] bg-white/80 px-4 py-3 shadow-sm shadow-[#e9a9bd]/10 sm:mb-6 sm:justify-center sm:gap-4 sm:px-5 sm:py-4">
-          <Logo name={businessName} logoUrl={logoUrl} />
-          <div className="min-w-0 sm:text-center">
-            <h1 className="truncate font-display text-2xl font-medium text-[#7f344f] sm:text-3xl">
-              {businessName}
-            </h1>
-            <p className="text-xs font-medium text-[#b35d7a] sm:text-sm">Agendamento online</p>
-          </div>
-        </header>
+        {step === 0 && (
+          <>
+            <header className="mb-4 flex items-center gap-3 rounded-2xl border border-[#f5c9d7] bg-white/80 px-4 py-3 shadow-sm shadow-[#e9a9bd]/10 sm:mb-6 sm:justify-center sm:gap-4 sm:px-5 sm:py-4">
+              <Logo name={businessName} logoUrl={logoUrl} />
+              <div className="min-w-0 sm:text-center">
+                <h1 className="truncate font-display text-2xl font-medium text-[#7f344f] sm:text-3xl">
+                  {businessName}
+                </h1>
+                <p className="text-xs font-medium text-[#b35d7a] sm:text-sm">Agendamento online</p>
+              </div>
+            </header>
 
-        <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#f6d4df] bg-white/70 p-1.5 shadow-sm sm:mb-6">
-          <button
-            type="button"
-            className="rounded-xl bg-[#c54f78] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm"
-          >
-            Agendar
-          </button>
-          <button
-            type="button"
-            onClick={openLookup}
-            className="rounded-xl px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[#9d365d] transition hover:bg-[#fff1f6]"
-          >
-            Consultar
-          </button>
-        </div>
+            <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#f6d4df] bg-white/70 p-1.5 shadow-sm sm:mb-6">
+              <button
+                type="button"
+                className="rounded-xl bg-[#c54f78] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm"
+              >
+                Agendar
+              </button>
+              <button
+                type="button"
+                onClick={openLookup}
+                className="rounded-xl px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[#9d365d] transition hover:bg-[#fff1f6]"
+              >
+                Consultar
+              </button>
+            </div>
+          </>
+        )}
 
         {/* Passos */}
         <div className="mb-4 rounded-2xl border border-[#f6d4df] bg-white/70 px-3 py-3 shadow-sm sm:mb-6 sm:px-4 sm:py-4">
