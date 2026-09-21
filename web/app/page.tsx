@@ -227,6 +227,12 @@ export default function BookingPage() {
   const needsLastName = nameParts.length === 1;
   const nameOk = nameParts.length >= 2;
   const phoneOk = isBrazilMobile(form.phone);
+  const canSubmitDetails = nameOk && phoneOk && !loading;
+  const submitLabel = loading
+    ? "Reservando..."
+    : service?.depositAmount && service.depositAmount > 0
+      ? "Confirmar e pagar sinal"
+      : "Confirmar agendamento";
 
   function updateName(name: string) {
     const nextParts = name.trim().split(/\s+/).filter(Boolean);
@@ -347,7 +353,11 @@ export default function BookingPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-[#fff1f6] via-[#fff8fa] to-sand-50 px-3 py-4 text-sand-900 sm:px-4 sm:py-8">
+    <main
+      className={`min-h-screen bg-gradient-to-b from-[#fff1f6] via-[#fff8fa] to-sand-50 px-3 py-4 text-sand-900 sm:px-4 sm:py-8 ${
+        step === 2 ? "pb-28 sm:pb-8" : ""
+      }`}
+    >
       <div className="mx-auto max-w-lg">
         <header className="mb-4 flex items-center gap-3 rounded-2xl border border-[#f5c9d7] bg-white/80 px-4 py-3 shadow-sm shadow-[#e9a9bd]/10 sm:mb-6 sm:justify-center sm:gap-4 sm:px-5 sm:py-4">
           <Logo name={businessName} logoUrl={logoUrl} />
@@ -540,19 +550,40 @@ export default function BookingPage() {
                 )}
               </div>
 
-              <div className="mt-6 grid gap-3 sm:grid-cols-[auto_1fr]">
+              <div className="mt-6 hidden gap-3 sm:grid sm:grid-cols-[auto_1fr]">
                 <BackButton onClick={() => setStep(1)} />
                 <button
-                  disabled={!nameOk || !phoneOk || loading}
+                  disabled={!canSubmitDetails}
                   onClick={submitAppointment}
                   className="w-full rounded-lg bg-[#c54f78] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#a83e63] disabled:opacity-40"
                 >
-                  {loading
-                    ? "Reservando…"
-                    : service.depositAmount > 0
-                      ? "Confirmar e pagar sinal"
-                      : "Confirmar agendamento"}
+                  {submitLabel}
                 </button>
+              </div>
+
+              <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[#f1c7d5] bg-white/95 px-3 py-3 shadow-[0_-10px_30px_rgba(127,52,79,0.12)] backdrop-blur sm:hidden">
+                <div className="mx-auto flex max-w-lg items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setStep(1)}
+                    className="h-12 rounded-lg border border-[#e9b5c6] px-4 text-sm font-medium text-[#9d365d]"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canSubmitDetails}
+                    onClick={submitAppointment}
+                    className="min-w-0 flex-1 rounded-lg bg-[#c54f78] px-4 py-2.5 text-sm font-semibold leading-tight text-white shadow-sm transition hover:bg-[#a83e63] disabled:opacity-40"
+                  >
+                    <span className="block">{submitLabel}</span>
+                    {service.depositAmount > 0 && (
+                      <span className="block text-[11px] font-medium text-white/85">
+                        Sinal de {brl(service.depositAmount)}
+                      </span>
+                    )}
+                  </button>
+                </div>
               </div>
             </section>
           )}
@@ -790,6 +821,10 @@ function AppointmentCard({ appointment }: { appointment: LookupAppointment }) {
     label: appointment.status,
     className: "border-sand-200 bg-sand-50 text-sand-600",
   };
+  const payment = PAYMENT_STATUS[appointment.payment?.status ?? appointment.paymentStatus] ?? {
+    label: appointment.payment?.status ?? appointment.paymentStatus,
+    className: "border-sand-200 bg-white text-sand-500",
+  };
   const remaining =
     appointment.status === "pending_payment" && appointment.expiresAt
       ? new Date(appointment.expiresAt).getTime() - Date.now()
@@ -817,30 +852,47 @@ function AppointmentCard({ appointment }: { appointment: LookupAppointment }) {
         )}
       </div>
 
-      {appointment.status === "pending_payment" && appointment.payment?.qrCodeText && (
-        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="text-xs font-semibold uppercase text-amber-700">Pagamento pendente</p>
-          {appointment.expiresAt && (
-            <p className="mt-1 text-xs text-amber-700">
-              Prazo restante: {formatRemaining(remaining)}
-            </p>
-          )}
-          <div className="mt-3 flex items-center gap-2">
-            <input
-              readOnly
-              value={appointment.payment.qrCodeText}
-              className="min-w-0 flex-1 truncate rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs text-sand-700"
-            />
-            <button
-              type="button"
-              onClick={() => navigator.clipboard.writeText(appointment.payment?.qrCodeText || "")}
-              className="rounded-lg bg-[#c54f78] px-3 py-2 text-xs font-medium text-white hover:bg-[#a83e63]"
-            >
-              Copiar
-            </button>
-          </div>
+      <div className="mt-4 rounded-lg border border-sand-100 bg-white p-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs font-semibold uppercase text-sand-500">Pagamento</span>
+          <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${payment.className}`}>
+            {payment.label}
+          </span>
         </div>
-      )}
+
+        {appointment.status === "pending_payment" && appointment.payment?.qrCodeText ? (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-xs font-semibold uppercase text-amber-700">Pix disponível para pagamento</p>
+            {appointment.expiresAt && (
+              <p className="mt-1 text-xs text-amber-700">
+                Prazo restante: {formatRemaining(remaining)}
+              </p>
+            )}
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                readOnly
+                value={appointment.payment.qrCodeText}
+                className="min-w-0 flex-1 truncate rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs text-sand-700"
+              />
+              <button
+                type="button"
+                onClick={() => navigator.clipboard.writeText(appointment.payment?.qrCodeText || "")}
+                className="rounded-lg bg-[#c54f78] px-3 py-2 text-xs font-medium text-white hover:bg-[#a83e63]"
+              >
+                Copiar
+              </button>
+            </div>
+          </div>
+        ) : appointment.status === "pending_payment" ? (
+          <p className="mt-2 text-xs text-sand-500">
+            O pagamento ainda está pendente. Se o Pix expirou, faça um novo agendamento.
+          </p>
+        ) : appointment.paymentStatus === "paid" || appointment.payment?.status === "paid" ? (
+          <p className="mt-2 text-xs text-emerald-700">Sinal pago. Seu horário está confirmado.</p>
+        ) : (
+          <p className="mt-2 text-xs text-sand-500">Nenhuma cobrança Pix pendente para este agendamento.</p>
+        )}
+      </div>
     </article>
   );
 }
@@ -869,6 +921,33 @@ const APPOINTMENT_STATUS: Record<string, { label: string; className: string }> =
   expired: {
     label: "Expirado",
     className: "border-sand-200 bg-sand-50 text-sand-400",
+  },
+};
+
+const PAYMENT_STATUS: Record<string, { label: string; className: string }> = {
+  pending: {
+    label: "Aguardando pagamento",
+    className: "border-amber-200 bg-amber-50 text-amber-700",
+  },
+  paid: {
+    label: "Pago",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+  expired: {
+    label: "Expirado",
+    className: "border-sand-200 bg-sand-50 text-sand-500",
+  },
+  failed: {
+    label: "Falhou",
+    className: "border-red-200 bg-red-50 text-red-600",
+  },
+  refunded: {
+    label: "Estornado",
+    className: "border-sand-200 bg-sand-50 text-sand-500",
+  },
+  cancelled: {
+    label: "Cancelado",
+    className: "border-sand-200 bg-sand-50 text-sand-500",
   },
 };
 
