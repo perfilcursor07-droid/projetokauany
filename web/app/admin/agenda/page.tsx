@@ -86,6 +86,18 @@ export default function AgendaPage() {
       .catch((e: any) => setError(e.message));
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedDate = params.get("date");
+    const shouldCreate = params.get("novo") === "1";
+
+    if (requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
+      setDate(requestedDate);
+      setForm((current) => ({ ...current, date: requestedDate }));
+    }
+    if (shouldCreate) setShowForm(true);
+  }, []);
+
   function toggleForm() {
     if (showForm) {
       setShowForm(false);

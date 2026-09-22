@@ -124,19 +124,45 @@ export async function publicRoutes(app: FastifyInstance) {
 
     return {
       business: {
-        id: business.id,
+        id: business.id.toString(),
         name: business.name,
         slug: business.slug,
         logoUrl: business.logoUrl,
       },
       services: services.map((s) => ({
-        id: s.id,
+        id: s.id.toString(),
         name: s.name,
         description: s.description,
         price: Number(s.price),
         durationMinutes: s.durationMinutes,
         depositType: s.depositType,
         depositAmount: computeDeposit(s.price, s.depositType, s.depositValue),
+      })),
+    };
+  });
+
+  // --- Dias e horarios de atendimento publicos ---------------------------
+  app.get('/business-hours', async (req, reply) => {
+    const { slug } = z.object({ slug: z.string().optional() }).parse(req.query);
+    const business = await resolvePublicBusiness(slug);
+    if (!business) return reply.code(404).send({ message: 'Negocio nao encontrado' });
+
+    const hours = await prisma.businessHour.findMany({
+      where: { businessId: business.id },
+      orderBy: { weekday: 'asc' },
+    });
+
+    return {
+      business: {
+        id: business.id.toString(),
+        name: business.name,
+        slug: business.slug,
+      },
+      hours: hours.map((h) => ({
+        weekday: h.weekday,
+        isOpen: h.isOpen,
+        openTime: h.openTime,
+        closeTime: h.closeTime,
       })),
     };
   });
@@ -175,6 +201,29 @@ export async function publicRoutes(app: FastifyInstance) {
     });
 
     return { date: parsed.data.date, slots };
+  });
+
+  // --- Busca cliente pelo WhatsApp para preencher nome no agendamento ----
+  app.post('/clients/lookup', async (req, reply) => {
+    const schema = z.object({
+      slug: z.string().optional(),
+      phone: z.string().min(8),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ message: 'Dados invalidos', issues: parsed.error.flatten() });
+    }
+
+    const business = await resolvePublicBusiness(parsed.data.slug);
+    if (!business) return reply.code(404).send({ message: 'Negocio nao encontrado' });
+
+    const phone = parsed.data.phone.replace(/\D/g, '');
+    const client = await prisma.client.findFirst({
+      where: { businessId: business.id, phone, deletedAt: null },
+      select: { name: true },
+    });
+
+    return { client: client ? { name: client.name } : null };
   });
 
   // --- Criacao do agendamento (reserva pendente de pagamento) ------------

@@ -59,6 +59,13 @@ type LookupResponse = {
   appointments: LookupAppointment[];
 };
 
+type BusinessHour = {
+  weekday: number;
+  isOpen: boolean;
+  openTime: string;
+  closeTime: string;
+};
+
 type PublicBio = {
   business: { name: string; logoUrl: string | null };
   bio: {
@@ -110,6 +117,56 @@ function formatAppointmentTime(iso: string) {
   });
 }
 
+function toDateInput(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function getBookableDays(start: Date, openWeekdays: number[] | null, offset: number, count: number) {
+  const allowed = openWeekdays && openWeekdays.length > 0 ? new Set(openWeekdays) : null;
+  if (openWeekdays && openWeekdays.length === 0) return [];
+
+  const days: Date[] = [];
+  let skipped = 0;
+  let cursor = new Date(start);
+  cursor.setHours(0, 0, 0, 0);
+
+  for (let guard = 0; days.length < count && guard < 180; guard += 1) {
+    if (!allowed || allowed.has(cursor.getDay())) {
+      if (skipped < offset) {
+        skipped += 1;
+      } else {
+        days.push(new Date(cursor));
+      }
+    }
+    cursor = addDays(cursor, 1);
+  }
+
+  return days;
+}
+
+function formatDayMonth(date: Date) {
+  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function formatWeekday(date: Date) {
+  const value = date.toLocaleDateString("pt-BR", { weekday: "long" });
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function formatShortWeekday(date: Date) {
+  const value = date.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "");
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
 }
@@ -118,12 +175,28 @@ function isBrazilMobile(value: string) {
   return /^\d{2}9\d{8}$/.test(onlyDigits(value));
 }
 
+function formatPhone(value: string) {
+  const digits = onlyDigits(value).slice(0, 11);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+}
+
+function normalizeMobilePhone(value: string) {
+  let digits = onlyDigits(value);
+  if (digits.length > 2 && digits[2] !== "9") {
+    digits = `${digits.slice(0, 2)}9${digits.slice(2)}`;
+  }
+  return digits.slice(0, 11);
+}
+
 export default function BookingPage() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [services, setServices] = useState<Service[]>([]);
+  const [businessHours, setBusinessHours] = useState<BusinessHour[] | null>(null);
   const [businessName, setBusinessName] = useState("Studio");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [bio, setBio] = useState<PublicBio | null>(null);
@@ -134,9 +207,13 @@ export default function BookingPage() {
 
   const [service, setService] = useState<Service | null>(null);
   const [date, setDate] = useState("");
+  const [dateOffset, setDateOffset] = useState(0);
   const [slots, setSlots] = useState<string[]>([]);
   const [time, setTime] = useState("");
   const [form, setForm] = useState({ name: "", phone: "" });
+  const [clientLookupMessage, setClientLookupMessage] = useState<string | null>(null);
+  const [clientFound, setClientFound] = useState(false);
+  const [clientLookupDone, setClientLookupDone] = useState(false);
 
   const [created, setCreated] = useState<CreateResponse | null>(null);
   const [pix, setPix] = useState<PixResponse | null>(null);
@@ -153,7 +230,11 @@ export default function BookingPage() {
 
   useEffect(() => {
     api<PublicBio>("/api/public/bio")
-      .then(setBio)
+      .then((data) => {
+        setBio(data);
+        if (data.business?.name) setBusinessName(data.business.name);
+        setLogoUrl(data.business?.logoUrl ?? null);
+      })
       .catch(() => setBio(null))
       .finally(() => setBioChecked(true));
   }, []);
@@ -168,6 +249,12 @@ export default function BookingPage() {
         setLogoUrl(r.business?.logoUrl ?? null);
       })
       .catch((e) => setError(e.message));
+  }, []);
+
+  useEffect(() => {
+    api<{ hours: BusinessHour[] }>("/api/public/business-hours")
+      .then((r) => setBusinessHours(r.hours))
+      .catch(() => setBusinessHours(null));
   }, []);
 
   // Carrega horários assim que a data muda (no passo Data e horário).
@@ -226,7 +313,9 @@ export default function BookingPage() {
     });
   }, [expired, created, confirmed]);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = toDateInput(new Date());
+  const openWeekdays = businessHours ? businessHours.filter((h) => h.isOpen).map((h) => h.weekday) : null;
+  const visibleDays = getBookableDays(new Date(), openWeekdays, dateOffset, 5);
   const nameParts = form.name.trim().split(/\s+/).filter(Boolean);
   const needsLastName = nameParts.length === 1;
   const nameOk = nameParts.length >= 2;
@@ -238,18 +327,72 @@ export default function BookingPage() {
       ? "Confirmar e pagar sinal"
       : "Confirmar agendamento";
 
+  useEffect(() => {
+    if (!phoneOk) {
+      setClientLookupMessage(null);
+      setClientFound(false);
+      setClientLookupDone(false);
+      return;
+    }
+
+    let cancelled = false;
+    api<{ client: { name: string } | null }>("/api/public/clients/lookup", {
+      method: "POST",
+      body: JSON.stringify({ phone: onlyDigits(form.phone) }),
+    })
+      .then((r) => {
+        if (cancelled) return;
+        if (r.client?.name) {
+          setForm((current) => ({
+            ...current,
+            name: r.client!.name,
+          }));
+          setClientFound(true);
+          setClientLookupDone(true);
+          setClientLookupMessage("Cadastro encontrado. Nome preenchido automaticamente.");
+        } else {
+          setClientFound(false);
+          setClientLookupDone(true);
+          setClientLookupMessage("Cadastro não encontrado. Informe seu nome completo.");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setClientFound(false);
+          setClientLookupDone(true);
+          setClientLookupMessage(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.phone, phoneOk]);
+
   function updateName(name: string) {
-    const nextParts = name.trim().split(/\s+/).filter(Boolean);
     setForm({
       ...form,
       name,
-      phone: nextParts.length >= 2 ? form.phone : "",
     });
   }
 
+  function updatePhone(phone: string) {
+    const nextPhone = normalizeMobilePhone(phone);
+    setForm({
+      ...form,
+      phone: nextPhone,
+      name: clientFound ? "" : form.name,
+    });
+    setClientFound(false);
+    setClientLookupDone(false);
+    setClientLookupMessage(null);
+  }
+
   function chooseService(s: Service) {
+    const firstAvailableDay = getBookableDays(new Date(), openWeekdays, 0, 1)[0];
     setService(s);
-    setDate("");
+    setDate(firstAvailableDay ? toDateInput(firstAvailableDay) : "");
+    setDateOffset(0);
     setSlots([]);
     setTime("");
     setStep(1);
@@ -338,10 +481,10 @@ export default function BookingPage() {
 
   if (!queryChecked || (!bioChecked && !forceBooking && !forceLookup)) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#fff1f6] via-[#fff8fa] to-sand-50 px-4 text-sand-900">
+      <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#f6eee7] via-[#fbf7f3] to-sand-50 px-4 text-sand-900">
         <div className="text-center">
-          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[#f5c9d7] border-t-[#c54f78]" />
-          <p className="text-sm font-medium text-[#b35d7a]">Carregando...</p>
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[#d8bda8] border-t-[#8b5e3c]" />
+          <p className="text-sm font-medium text-[#8a644d]">Carregando...</p>
         </div>
       </main>
     );
@@ -369,34 +512,34 @@ export default function BookingPage() {
 
   return (
     <main
-      className={`min-h-screen bg-gradient-to-b from-[#fff1f6] via-[#fff8fa] to-sand-50 px-3 py-4 text-sand-900 sm:px-4 sm:py-8 ${
+      className={`min-h-screen bg-gradient-to-b from-[#f6eee7] via-[#fbf7f3] to-sand-50 px-3 py-4 text-sand-900 sm:px-4 sm:py-8 ${
         step === 2 ? "pb-28 sm:pb-8" : ""
       }`}
     >
       <div className="mx-auto max-w-lg">
         {step === 0 && (
           <>
-            <header className="mb-4 flex items-center gap-3 rounded-2xl border border-[#f5c9d7] bg-white/80 px-4 py-3 shadow-sm shadow-[#e9a9bd]/10 sm:mb-6 sm:justify-center sm:gap-4 sm:px-5 sm:py-4">
+            <header className="mb-4 flex items-center gap-3 rounded-2xl border border-[#d8bda8] bg-white/80 px-4 py-3 shadow-sm shadow-[#c8a58e]/10 sm:mb-6 sm:justify-center sm:gap-4 sm:px-5 sm:py-4">
               <Logo name={businessName} logoUrl={logoUrl} />
               <div className="min-w-0 sm:text-center">
-                <h1 className="truncate font-display text-2xl font-medium text-[#7f344f] sm:text-3xl">
+                <h1 className="truncate font-display text-2xl font-medium text-[#5c3a28] sm:text-3xl">
                   {businessName}
                 </h1>
-                <p className="text-xs font-medium text-[#b35d7a] sm:text-sm">Agendamento online</p>
+                <p className="text-xs font-medium text-[#8a644d] sm:text-sm">Agendamento online</p>
               </div>
             </header>
 
-            <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#f6d4df] bg-white/70 p-1.5 shadow-sm sm:mb-6">
+            <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#e4d2c3] bg-white/70 p-1.5 shadow-sm sm:mb-6">
               <button
                 type="button"
-                className="rounded-xl bg-[#c54f78] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm"
+                className="rounded-xl bg-[#8b5e3c] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm"
               >
                 Agendar
               </button>
               <button
                 type="button"
                 onClick={openLookup}
-                className="rounded-xl px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[#9d365d] transition hover:bg-[#fff1f6]"
+                className="rounded-xl px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[#6f452d] transition hover:bg-[#f6eee7]"
               >
                 Consultar
               </button>
@@ -405,7 +548,7 @@ export default function BookingPage() {
         )}
 
         {/* Passos */}
-        <div className="mb-4 rounded-2xl border border-[#f6d4df] bg-white/70 px-3 py-3 shadow-sm sm:mb-6 sm:px-4 sm:py-4">
+        <div className="mb-4 rounded-2xl border border-[#e4d2c3] bg-white/70 px-3 py-3 shadow-sm sm:mb-6 sm:px-4 sm:py-4">
           <div className="flex items-start">
           {STEPS.map((label, i) => (
             <div key={label} className="flex flex-1 items-center">
@@ -413,15 +556,15 @@ export default function BookingPage() {
                 <div
                   className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition sm:h-8 sm:w-8 ${
                     i <= step
-                      ? "bg-[#c54f78] text-white shadow-sm shadow-[#c54f78]/25"
-                      : "border border-[#f0c2d2] bg-white text-[#c798a9]"
+                      ? "bg-[#8b5e3c] text-white shadow-sm shadow-[#8b5e3c]/25"
+                      : "border border-[#dbc4b2] bg-white text-[#b08d73]"
                   }`}
                 >
                   {i < step ? "✓" : i + 1}
                 </div>
                 <span
                   className={`mt-1.5 hidden max-w-20 text-center text-[10px] font-medium leading-tight sm:block ${
-                    i <= step ? "text-[#7f344f]" : "text-[#ba8fa0]"
+                    i <= step ? "text-[#5c3a28]" : "text-[#a78268]"
                   }`}
                 >
                   {label}
@@ -429,7 +572,7 @@ export default function BookingPage() {
               </div>
               {i < STEPS.length - 1 && (
                 <div
-                  className={`mx-1.5 mt-3.5 h-px flex-1 sm:mx-2 sm:mt-4 ${i < step ? "bg-[#c54f78]" : "bg-[#f0c2d2]"}`}
+                  className={`mx-1.5 mt-3.5 h-px flex-1 sm:mx-2 sm:mt-4 ${i < step ? "bg-[#8b5e3c]" : "bg-[#dbc4b2]"}`}
                 />
               )}
             </div>
@@ -437,7 +580,7 @@ export default function BookingPage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#f3c9d7] bg-white p-4 shadow-sm shadow-[#e9a9bd]/10 sm:p-6">
+        <div className="rounded-2xl border border-[#dcc6b5] bg-white p-4 shadow-sm shadow-[#c8a58e]/10 sm:p-6">
           {error && (
             <div className="mb-4 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
               {error}
@@ -447,7 +590,7 @@ export default function BookingPage() {
           {/* PASSO 1 — Serviço */}
           {step === 0 && (
             <section>
-              <h2 className="mb-4 font-display text-2xl text-[#7f344f]">
+              <h2 className="mb-4 font-display text-2xl text-[#5c3a28]">
                 Escolha seu serviço
               </h2>
               <div className="space-y-2.5">
@@ -458,21 +601,21 @@ export default function BookingPage() {
                   <button
                     key={s.id}
                     onClick={() => chooseService(s)}
-                    className="group flex w-full items-center justify-between gap-4 rounded-xl border border-[#f1d3dc] bg-[#fffafd] p-4 text-left transition hover:-translate-y-0.5 hover:border-[#d66b91] hover:bg-[#fff2f7] hover:shadow-sm"
+                    className="group flex w-full items-center justify-between gap-4 rounded-xl border border-[#e1d0c3] bg-[#fffaf6] p-4 text-left transition hover:-translate-y-0.5 hover:border-[#9b6a47] hover:bg-[#f7eee7] hover:shadow-sm"
                   >
                     <div>
-                      <p className="font-medium text-[#633043]">{s.name}</p>
+                      <p className="font-medium text-[#4a3022]">{s.name}</p>
                       {s.description && (
-                        <p className="mt-1 max-w-[13rem] text-xs leading-relaxed text-[#8f6272] sm:max-w-xs">
+                        <p className="mt-1 max-w-[13rem] text-xs leading-relaxed text-[#75543f] sm:max-w-xs">
                           {s.description}
                         </p>
                       )}
-                      <p className="mt-1 text-xs text-[#a0697d]">
+                      <p className="mt-1 text-xs text-[#8a6a55]">
                         {durationLabel(s.durationMinutes)}
                         {s.depositAmount > 0 && ` · sinal ${brl(s.depositAmount)}`}
                       </p>
                     </div>
-                    <span className="shrink-0 rounded-full bg-white px-3 py-1.5 font-display text-lg text-[#9d365d] shadow-sm">
+                    <span className="shrink-0 rounded-full bg-white px-3 py-1.5 font-display text-lg text-[#6f452d] shadow-sm">
                       {brl(s.price)}
                     </span>
                   </button>
@@ -485,42 +628,93 @@ export default function BookingPage() {
           {step === 1 && service && (
             <section>
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="font-display text-2xl text-[#7f344f]">Escolha data e horário</h2>
-                <span className="rounded-full bg-[#fff1f6] px-3 py-1 text-xs text-[#a14c68]">{service.name}</span>
+                <h2 className="font-display text-2xl text-[#5c3a28]">Escolha data e horário</h2>
+                <span className="rounded-full bg-[#f6eee7] px-3 py-1 text-xs text-[#7d5135]">{service.name}</span>
               </div>
 
-              <label className="mb-1 block text-xs font-medium text-sand-600">Data</label>
-              <input
-                type="date"
-                min={today}
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full rounded-lg border border-[#e9b5c6] px-4 py-3 text-sand-900 outline-none focus:border-[#c54f78]"
-              />
+              <div className="rounded-2xl border border-[#ead8ca] bg-[#fffaf6] px-3 py-4">
+                <p className="mb-3 text-center text-sm font-bold text-[#6f452d]">
+                  Selecione o dia:
+                </p>
 
-              {date && (
-                <div className="mt-5">
-                  <p className="mb-2 text-xs font-medium text-sand-600">
-                    Horários disponíveis
+                {visibleDays.length === 0 ? (
+                  <p className="rounded-xl border border-[#ead8ca] bg-white px-4 py-3 text-center text-sm text-sand-400">
+                    Nenhum dia de atendimento foi configurado ainda.
                   </p>
-                  {loading && <p className="text-sm text-sand-400">Buscando horários…</p>}
+                ) : (
+                  <div className="grid grid-cols-[34px_repeat(5,minmax(0,1fr))_34px] items-stretch gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setDateOffset((current) => Math.max(0, current - 5))}
+                      disabled={dateOffset === 0}
+                      aria-label="Ver dias anteriores"
+                      className="flex items-center justify-center rounded-xl border border-[#ead8ca] bg-white text-lg leading-none text-[#b58c70] transition hover:border-[#8b5e3c] hover:text-[#8b5e3c] disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      ‹
+                    </button>
+
+                    {visibleDays.map((day) => {
+                      const value = toDateInput(day);
+                      const selected = date === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setDate(value)}
+                          className={`rounded-xl border px-1 py-2.5 text-center transition ${
+                            selected
+                              ? "border-[#8b5e3c] bg-[#8b5e3c] text-white shadow-sm shadow-[#8b5e3c]/20"
+                              : "border-[#d1ad93] bg-white text-[#9a6a49] hover:border-[#8b5e3c] hover:bg-[#f6eee7] hover:text-[#6f452d]"
+                          }`}
+                        >
+                          <span className="block whitespace-nowrap text-sm font-bold leading-tight">{formatDayMonth(day)}</span>
+                          <span className="mt-1 block whitespace-nowrap text-[11px] font-semibold leading-tight">{formatShortWeekday(day)}</span>
+                        </button>
+                      );
+                    })}
+
+                    <button
+                      type="button"
+                      onClick={() => setDateOffset((current) => current + 5)}
+                      aria-label="Ver próximos dias"
+                      className="flex items-center justify-center rounded-xl border border-[#ead8ca] bg-white text-lg leading-none text-[#b58c70] transition hover:border-[#8b5e3c] hover:text-[#8b5e3c]"
+                    >
+                      ›
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {date ? (
+                <div className="mt-5">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-sm font-bold text-[#5c3a28]">Horários disponíveis</p>
+                    <span className="rounded-full bg-[#f6eee7] px-3 py-1 text-xs font-medium text-[#7d5135]">
+                      {date.split("-").reverse().join("/")}
+                    </span>
+                  </div>
+                  {loading && <p className="text-sm text-sand-400">Buscando horários...</p>}
                   {!loading && slots.length === 0 && (
-                    <p className="text-sm text-sand-400">
+                    <p className="rounded-xl border border-[#ead8ca] bg-[#fffaf6] px-4 py-3 text-sm text-sand-400">
                       Nenhum horário livre nesta data. Tente outro dia.
                     </p>
                   )}
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
                     {slots.map((s) => (
                       <button
                         key={s}
                         onClick={() => chooseTime(s)}
-                        className="rounded-lg border border-[#f0c2d2] bg-[#fffafd] py-2.5 text-sm font-medium text-[#7f344f] transition hover:border-[#c54f78] hover:bg-[#fff1f6]"
+                        className="rounded-xl border border-[#dbc4b2] bg-[#fffaf6] py-3 text-sm font-semibold text-[#5c3a28] transition hover:border-[#8b5e3c] hover:bg-[#f6eee7]"
                       >
                         {s}
                       </button>
                     ))}
                   </div>
                 </div>
+              ) : (
+                <p className="mt-4 text-center text-sm text-sand-400">
+                  Escolha um dia para ver os horários disponíveis.
+                </p>
               )}
 
               <div className="mt-6">
@@ -532,36 +726,37 @@ export default function BookingPage() {
           {/* PASSO 3 — Dados */}
           {step === 2 && service && (
             <section>
-              <h2 className="mb-4 font-display text-2xl text-[#7f344f]">Seus dados</h2>
+              <h2 className="mb-4 font-display text-2xl text-[#5c3a28]">Seus dados</h2>
               <div className="space-y-3">
                 <Field
-                  label="Nome e sobrenome"
-                  value={form.name}
-                  onChange={updateName}
-                  placeholder="Ex.: Maria Silva"
-                  hint={needsLastName ? "Digite também o sobrenome." : undefined}
-                  invalid={needsLastName}
-                />
-                <Field
-                  label="WhatsApp"
-                  value={form.phone}
-                  onChange={(v) => setForm({ ...form, phone: onlyDigits(v).slice(0, 11) })}
-                  placeholder={nameOk ? "63999999999" : "Preencha nome e sobrenome primeiro"}
-                  disabled={!nameOk}
+                  label="Número de celular"
+                  value={formatPhone(form.phone)}
+                  onChange={updatePhone}
+                  placeholder="(63) 99999-9999"
                   hint={
-                    !nameOk
-                      ? "O WhatsApp será liberado após preencher nome e sobrenome."
-                      : form.phone && !phoneOk
-                        ? "Use 11 números: DDD + 9 + número. Ex.: 63981013083."
-                        : undefined
+                    form.phone && !phoneOk
+                      ? "Use DDD + 9 + número. Ex.: (63) 98101-3083."
+                      : phoneOk && !clientLookupDone
+                        ? "Verificando cadastro..."
+                        : clientLookupMessage ?? undefined
                   }
                   invalid={Boolean(form.phone) && !phoneOk}
                   inputMode="numeric"
-                  maxLength={11}
+                  maxLength={15}
                 />
+                {phoneOk && clientLookupDone && (
+                  <Field
+                    label="Nome e sobrenome"
+                    value={form.name}
+                    onChange={updateName}
+                    placeholder="Ex.: Maria Silva"
+                    hint={needsLastName ? "Digite também o sobrenome." : undefined}
+                    invalid={needsLastName}
+                  />
+                )}
               </div>
 
-              <div className="mt-5 rounded-xl border border-[#f0c2d2] bg-[#fff8fb] p-4 text-sm">
+              <div className="mt-5 rounded-xl border border-[#dbc4b2] bg-[#fff9f4] p-4 text-sm">
                 <Row label="Serviço" value={service.name} />
                 <Row label="Data / hora" value={`${date.split("-").reverse().join("/")} às ${time}`} />
                 <div className="my-2 border-t border-sand-200" />
@@ -579,7 +774,7 @@ export default function BookingPage() {
                 <button
                   disabled={!canSubmitDetails}
                   onClick={submitAppointment}
-                  className="w-full rounded-lg bg-[#c54f78] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#a83e63] disabled:opacity-40"
+                  className="w-full rounded-lg bg-[#8b5e3c] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#704629] disabled:opacity-40"
                 >
                   {submitLabel}
                 </button>
@@ -590,7 +785,7 @@ export default function BookingPage() {
                   <button
                     type="button"
                     onClick={() => setStep(1)}
-                    className="h-12 rounded-lg border border-[#e9b5c6] px-4 text-sm font-medium text-[#9d365d]"
+                    className="h-12 rounded-lg border border-[#ccb09a] px-4 text-sm font-medium text-[#6f452d]"
                   >
                     Voltar
                   </button>
@@ -598,7 +793,7 @@ export default function BookingPage() {
                     type="button"
                     disabled={!canSubmitDetails}
                     onClick={submitAppointment}
-                    className="min-w-0 flex-1 rounded-lg bg-[#c54f78] px-4 py-2.5 text-sm font-semibold leading-tight text-white shadow-sm transition hover:bg-[#a83e63] disabled:opacity-40"
+                    className="min-w-0 flex-1 rounded-lg bg-[#8b5e3c] px-4 py-2.5 text-sm font-semibold leading-tight text-white shadow-sm transition hover:bg-[#704629] disabled:opacity-40"
                   >
                     <span className="block">{submitLabel}</span>
                     {service.depositAmount > 0 && (
@@ -620,7 +815,7 @@ export default function BookingPage() {
                   <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-accent-50 text-2xl text-accent-700">
                     ✓
                   </div>
-                    <h2 className="font-display text-2xl text-[#7f344f]">
+                    <h2 className="font-display text-2xl text-[#5c3a28]">
                     Agendamento confirmado
                   </h2>
                   <p className="mt-2 text-sm text-sand-500">
@@ -645,14 +840,14 @@ export default function BookingPage() {
                   </p>
                   <button
                     onClick={chooseAnotherTime}
-                    className="mt-5 w-full rounded-lg bg-[#c54f78] py-3 text-sm font-medium text-white transition hover:bg-[#a83e63]"
+                    className="mt-5 w-full rounded-lg bg-[#8b5e3c] py-3 text-sm font-medium text-white transition hover:bg-[#704629]"
                   >
                     Escolher outro horário
                   </button>
                 </div>
               ) : pix ? (
                 <div>
-                  <h2 className="font-display text-2xl text-[#7f344f]">Pague o sinal via Pix</h2>
+                  <h2 className="font-display text-2xl text-[#5c3a28]">Pague o sinal via Pix</h2>
                   <p className="mb-5 mt-0.5 text-sm text-sand-500">
                     {brl(pix.amount)} para reservar seu horário
                   </p>
@@ -686,7 +881,7 @@ export default function BookingPage() {
                         />
                         <button
                           onClick={() => navigator.clipboard.writeText(pix.pix.qrCodeText || "")}
-                          className="rounded-lg bg-[#c54f78] px-3 py-2 text-xs font-medium text-white hover:bg-[#a83e63]"
+                          className="rounded-lg bg-[#8b5e3c] px-3 py-2 text-xs font-medium text-white hover:bg-[#704629]"
                         >
                           Copiar
                         </button>
@@ -716,7 +911,7 @@ export default function BookingPage() {
         </div>
 
         <p className="mt-8 text-center text-xs text-sand-400">
-          <a href="/admin" className="underline-offset-2 hover:text-[#9d365d] hover:underline">
+          <a href="/admin" className="underline-offset-2 hover:text-[#6f452d] hover:underline">
             Acesso da equipe
           </a>
         </p>
@@ -760,36 +955,36 @@ function LookupPage({
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-[#fff1f6] via-[#fff8fa] to-sand-50 px-3 py-4 text-sand-900 sm:px-4 sm:py-8">
+    <main className="min-h-screen bg-gradient-to-b from-[#f6eee7] via-[#fbf7f3] to-sand-50 px-3 py-4 text-sand-900 sm:px-4 sm:py-8">
       <div className="mx-auto max-w-lg">
-        <header className="mb-4 flex items-center gap-3 rounded-2xl border border-[#f5c9d7] bg-white/80 px-4 py-3 shadow-sm shadow-[#e9a9bd]/10 sm:mb-6 sm:justify-center sm:gap-4 sm:px-5 sm:py-4">
+        <header className="mb-4 flex items-center gap-3 rounded-2xl border border-[#d8bda8] bg-white/80 px-4 py-3 shadow-sm shadow-[#c8a58e]/10 sm:mb-6 sm:justify-center sm:gap-4 sm:px-5 sm:py-4">
           <Logo name={businessName} logoUrl={logoUrl} />
           <div className="min-w-0 sm:text-center">
-            <h1 className="truncate font-display text-2xl font-medium text-[#7f344f] sm:text-3xl">
+            <h1 className="truncate font-display text-2xl font-medium text-[#5c3a28] sm:text-3xl">
               {businessName}
             </h1>
-            <p className="text-xs font-medium text-[#b35d7a] sm:text-sm">Consultar atendimento</p>
+            <p className="text-xs font-medium text-[#8a644d] sm:text-sm">Consultar atendimento</p>
           </div>
         </header>
 
-        <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#f6d4df] bg-white/70 p-1.5 shadow-sm sm:mb-6">
+        <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl border border-[#e4d2c3] bg-white/70 p-1.5 shadow-sm sm:mb-6">
           <button
             type="button"
             onClick={onBooking}
-            className="rounded-xl px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[#9d365d] transition hover:bg-[#fff1f6]"
+            className="rounded-xl px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[#6f452d] transition hover:bg-[#f6eee7]"
           >
             Agendar
           </button>
           <button
             type="button"
-            className="rounded-xl bg-[#c54f78] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm"
+            className="rounded-xl bg-[#8b5e3c] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm"
           >
             Consultar
           </button>
         </div>
 
-        <section className="rounded-2xl border border-[#f3c9d7] bg-white p-4 shadow-sm shadow-[#e9a9bd]/10 sm:p-6">
-          <h2 className="font-display text-2xl text-[#7f344f]">Consulte seu agendamento</h2>
+        <section className="rounded-2xl border border-[#dcc6b5] bg-white p-4 shadow-sm shadow-[#c8a58e]/10 sm:p-6">
+          <h2 className="font-display text-2xl text-[#5c3a28]">Consulte seu agendamento</h2>
           <p className="mt-1 text-sm leading-6 text-sand-500">
             Digite o WhatsApp usado no agendamento para ver os próximos atendimentos e o status do pagamento.
           </p>
@@ -813,7 +1008,7 @@ function LookupPage({
             <button
               type="submit"
               disabled={!phoneOk || loading}
-              className="w-full rounded-lg bg-[#c54f78] py-3 text-sm font-medium text-white transition hover:bg-[#a83e63] disabled:opacity-40"
+              className="w-full rounded-lg bg-[#8b5e3c] py-3 text-sm font-medium text-white transition hover:bg-[#704629] disabled:opacity-40"
             >
               {loading ? "Consultando..." : "Consultar agendamento"}
             </button>
@@ -822,7 +1017,7 @@ function LookupPage({
           {result && (
             <div className="mt-6">
               {result.appointments.length === 0 ? (
-                <div className="rounded-xl border border-[#f0c2d2] bg-[#fff8fb] p-4 text-sm text-sand-500">
+                <div className="rounded-xl border border-[#dbc4b2] bg-[#fff9f4] p-4 text-sm text-sand-500">
                   Nenhum agendamento foi encontrado para esse WhatsApp.
                 </div>
               ) : (
@@ -855,10 +1050,10 @@ function AppointmentCard({ appointment }: { appointment: LookupAppointment }) {
       : 0;
 
   return (
-    <article className="rounded-xl border border-[#f0c2d2] bg-[#fffafd] p-4 text-left">
+    <article className="rounded-xl border border-[#dbc4b2] bg-[#fffaf6] p-4 text-left">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-medium text-[#633043]">{appointment.service}</p>
+          <p className="font-medium text-[#4a3022]">{appointment.service}</p>
           <p className="mt-1 text-xs text-sand-500">
             {formatAppointmentDate(appointment.startAt)} às {formatAppointmentTime(appointment.startAt)}
           </p>
@@ -901,7 +1096,7 @@ function AppointmentCard({ appointment }: { appointment: LookupAppointment }) {
               <button
                 type="button"
                 onClick={() => navigator.clipboard.writeText(appointment.payment?.qrCodeText || "")}
-                className="rounded-lg bg-[#c54f78] px-3 py-2 text-xs font-medium text-white hover:bg-[#a83e63]"
+                className="rounded-lg bg-[#8b5e3c] px-3 py-2 text-xs font-medium text-white hover:bg-[#704629]"
               >
                 Copiar
               </button>
@@ -1064,7 +1259,7 @@ function BioLanding({
             )}
             <button
               onClick={onLookup}
-              className="w-full border border-[#f3c9d7] bg-[#fff8fb] px-5 py-5 text-sm uppercase tracking-wide text-[#9d365d] shadow-sm transition hover:-translate-y-0.5 hover:border-accent-200 hover:text-accent-700 hover:shadow-md"
+              className="w-full border border-[#dcc6b5] bg-[#fff9f4] px-5 py-5 text-sm uppercase tracking-wide text-[#6f452d] shadow-sm transition hover:-translate-y-0.5 hover:border-accent-200 hover:text-accent-700 hover:shadow-md"
             >
               Consultar meu agendamento
             </button>
@@ -1107,13 +1302,13 @@ function Logo({ name, logoUrl }: { name: string; logoUrl: string | null }) {
       <img
         src={logoUrl}
         alt={name}
-        className="h-14 w-14 shrink-0 rounded-full border-4 border-white object-cover shadow-md shadow-[#d9829f]/20 ring-1 ring-[#efbfd0] sm:h-16 sm:w-16"
+        className="h-14 w-14 shrink-0 rounded-full border-4 border-white object-cover shadow-md shadow-[#b98f72]/20 ring-1 ring-[#d8bea9] sm:h-16 sm:w-16"
       />
     );
   }
   const initial = name.trim().charAt(0).toUpperCase() || "S";
   return (
-    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-4 border-white bg-[#fff7fa] font-display text-2xl text-[#c54f78] shadow-md shadow-[#d9829f]/20 ring-1 ring-[#efbfd0] sm:h-16 sm:w-16 sm:text-3xl">
+    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-4 border-white bg-[#fff8f3] font-display text-2xl text-[#8b5e3c] shadow-md shadow-[#b98f72]/20 ring-1 ring-[#d8bea9] sm:h-16 sm:w-16 sm:text-3xl">
       {initial}
     </div>
   );
@@ -1179,8 +1374,8 @@ function Field({
         inputMode={inputMode}
         maxLength={maxLength}
         onChange={(e) => onChange(e.target.value)}
-        className={`w-full rounded-lg border px-4 py-2.5 text-sand-900 outline-none placeholder:text-[#bf91a2] focus:border-[#c54f78] disabled:cursor-not-allowed disabled:bg-sand-100 disabled:text-sand-400 disabled:placeholder:text-sand-400 ${
-          invalid ? "border-amber-300 bg-amber-50/50" : "border-[#e9b5c6]"
+        className={`w-full rounded-lg border px-4 py-2.5 text-sand-900 outline-none placeholder:text-[#a98973] focus:border-[#8b5e3c] disabled:cursor-not-allowed disabled:bg-sand-100 disabled:text-sand-400 disabled:placeholder:text-sand-400 ${
+          invalid ? "border-amber-300 bg-amber-50/50" : "border-[#ccb09a]"
         }`}
       />
       {hint && <span className="mt-1.5 block text-xs font-medium text-amber-700">{hint}</span>}
@@ -1192,9 +1387,10 @@ function BackButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="w-full rounded-lg border border-[#e9b5c6] px-5 py-3 text-sm font-medium text-[#9d365d] transition hover:bg-[#fff1f6] sm:w-auto"
+      className="w-full rounded-lg border border-[#ccb09a] px-5 py-3 text-sm font-medium text-[#6f452d] transition hover:bg-[#f6eee7] sm:w-auto"
     >
       Voltar
     </button>
   );
 }
+

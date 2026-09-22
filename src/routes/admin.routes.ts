@@ -109,7 +109,7 @@ export async function adminRoutes(app: FastifyInstance) {
           startAt: { gte: dayStart, lte: dayEnd },
           status: { in: ['confirmed', 'completed', 'pending_payment'] },
         },
-        include: { service: true, client: { select: { name: true } } },
+        include: { service: true, client: { select: { name: true, phone: true } } },
         orderBy: { startAt: 'asc' },
       }),
       prisma.appointment.findMany({
@@ -146,10 +146,24 @@ export async function adminRoutes(app: FastifyInstance) {
     ).length;
 
     const next = todays.find((a) => a.startAt > now) ?? null;
+    const todayPendingDeposit = todays.filter(
+      (a) => a.status === 'pending_payment' && a.paymentStatus !== 'paid'
+    ).length;
+    const todayNeedsStatus = todays.filter(
+      (a) => a.startAt < now && ['confirmed', 'pending_payment'].includes(a.status)
+    ).length;
+    const todayCompleted = todays.filter((a) => a.status === 'completed').length;
+    const todayRemaining = todays.filter(
+      (a) => a.startAt >= now && a.status !== 'completed'
+    ).length;
 
     return {
       today: {
         count: todays.length,
+        completed: todayCompleted,
+        remaining: todayRemaining,
+        pendingDeposit: todayPendingDeposit,
+        needsStatus: todayNeedsStatus,
         expectedRevenue: expected,
         receivedDeposits: received,
         toReceive: Math.max(expected - received, 0),
@@ -178,10 +192,13 @@ export async function adminRoutes(app: FastifyInstance) {
       },
       next: next
         ? {
+            id: next.id,
             time: next.startAt,
             client: next.client.name,
+            phone: next.client.phone,
             service: next.service.name,
             total: Number(next.totalAmount),
+            deposit: Number(next.depositAmount),
             depositPaid: next.paymentStatus === 'paid',
           }
         : null,
@@ -189,8 +206,12 @@ export async function adminRoutes(app: FastifyInstance) {
         id: a.id,
         time: a.startAt,
         client: a.client.name,
+        phone: a.client.phone,
         service: a.service.name,
         status: a.status,
+        paymentStatus: a.paymentStatus,
+        total: Number(a.totalAmount),
+        deposit: Number(a.depositAmount),
       })),
     };
   });
