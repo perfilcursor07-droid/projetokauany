@@ -15,7 +15,7 @@ type Notification = {
   triggerKey: string;
   toPhone: string;
   body: string;
-  status: "pending" | "sent" | "failed";
+  status: string;
   error: string | null;
   createdAt: string;
   sentAt: string | null;
@@ -99,8 +99,9 @@ export default function WhatsappPage() {
   }
 
   const manual = (st.mode ?? data.mode) === "manual";
-  const pending = data.notifications.filter((n) => n.status === "pending");
-  const history = data.notifications.filter((n) => n.status !== "pending");
+  const notifications = Array.isArray(data.notifications) ? data.notifications : [];
+  const pending = notifications.filter((n) => n.status === "pending");
+  const history = notifications.filter((n) => n.status !== "pending");
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -206,7 +207,7 @@ export default function WhatsappPage() {
       ) : (
         <>
           <BaileysPanel st={st} onChanged={loadStatus} />
-          <Logs notifications={data.notifications} onRetry={retry} />
+          <Logs notifications={notifications} onRetry={retry} />
         </>
       )}
     </div>
@@ -288,15 +289,18 @@ function Logs({
   );
 }
 
-function StatusBadge({ status }: { status: Notification["status"] }) {
-  const map = {
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
     sent: { label: "Enviada", cls: "border-emerald-200 bg-emerald-50 text-emerald-700" },
     pending: { label: "Na fila", cls: "border-amber-200 bg-amber-50 text-amber-700" },
     failed: { label: "Falhou", cls: "border-red-200 bg-red-50 text-red-600" },
-  }[status];
+    cancelled: { label: "Cancelada", cls: "border-sand-200 bg-sand-50 text-sand-500" },
+    expired: { label: "Expirada", cls: "border-sand-200 bg-sand-50 text-sand-500" },
+  };
+  const item = map[status] ?? { label: status || "Desconhecido", cls: "border-sand-200 bg-sand-50 text-sand-500" };
   return (
-    <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${map.cls}`}>
-      {map.label}
+    <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${item.cls}`}>
+      {item.label}
     </span>
   );
 }
