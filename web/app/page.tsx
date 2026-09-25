@@ -642,7 +642,7 @@ export default function BookingPage() {
                     Nenhum dia de atendimento foi configurado ainda.
                   </p>
                 ) : (
-                  <div className="grid grid-cols-[34px_repeat(5,minmax(0,1fr))_34px] items-stretch gap-1.5">
+                  <div className="grid grid-cols-[28px_repeat(5,minmax(0,1fr))_28px] items-stretch gap-1 sm:grid-cols-[34px_repeat(5,minmax(0,1fr))_34px] sm:gap-1.5">
                     <button
                       type="button"
                       onClick={() => setDateOffset((current) => Math.max(0, current - 5))}
@@ -661,13 +661,13 @@ export default function BookingPage() {
                           key={value}
                           type="button"
                           onClick={() => setDate(value)}
-                          className={`rounded-xl border px-1 py-2.5 text-center transition ${
+                          className={`min-w-0 overflow-hidden rounded-xl border px-0.5 py-2.5 text-center transition sm:px-1 ${
                             selected
                               ? "border-[#8b5e3c] bg-[#8b5e3c] text-white shadow-sm shadow-[#8b5e3c]/20"
                               : "border-[#d1ad93] bg-white text-[#9a6a49] hover:border-[#8b5e3c] hover:bg-[#f6eee7] hover:text-[#6f452d]"
                           }`}
                         >
-                          <span className="block whitespace-nowrap text-sm font-bold leading-tight">{formatDayMonth(day)}</span>
+                          <span className="block whitespace-nowrap text-[12px] font-bold leading-tight sm:text-sm">{formatDayMonth(day)}</span>
                           <span className="mt-1 block whitespace-nowrap text-[11px] font-semibold leading-tight">{formatShortWeekday(day)}</span>
                         </button>
                       );
