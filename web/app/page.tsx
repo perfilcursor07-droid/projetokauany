@@ -315,7 +315,7 @@ export default function BookingPage() {
 
   const today = toDateInput(new Date());
   const openWeekdays = businessHours ? businessHours.filter((h) => h.isOpen).map((h) => h.weekday) : null;
-  const visibleDays = getBookableDays(new Date(), openWeekdays, dateOffset, 5);
+  const visibleDays = getBookableDays(new Date(), openWeekdays, dateOffset, 6);
   const nameParts = form.name.trim().split(/\s+/).filter(Boolean);
   const needsLastName = nameParts.length === 1;
   const nameOk = nameParts.length >= 2;
@@ -642,10 +642,10 @@ export default function BookingPage() {
                     Nenhum dia de atendimento foi configurado ainda.
                   </p>
                 ) : (
-                  <div className="grid grid-cols-[28px_repeat(5,minmax(0,1fr))_28px] items-stretch gap-1 sm:grid-cols-[34px_repeat(5,minmax(0,1fr))_34px] sm:gap-1.5">
+                  <div className="grid grid-cols-[28px_minmax(0,1fr)_28px] items-stretch gap-1.5 sm:grid-cols-[34px_minmax(0,1fr)_34px]">
                     <button
                       type="button"
-                      onClick={() => setDateOffset((current) => Math.max(0, current - 5))}
+                      onClick={() => setDateOffset((current) => Math.max(0, current - 6))}
                       disabled={dateOffset === 0}
                       aria-label="Ver dias anteriores"
                       className="flex items-center justify-center rounded-xl border border-[#ead8ca] bg-white text-lg leading-none text-[#b58c70] transition hover:border-[#8b5e3c] hover:text-[#8b5e3c] disabled:cursor-not-allowed disabled:opacity-30"
@@ -653,29 +653,31 @@ export default function BookingPage() {
                       ‹
                     </button>
 
-                    {visibleDays.map((day) => {
-                      const value = toDateInput(day);
-                      const selected = date === value;
-                      return (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() => setDate(value)}
-                          className={`min-w-0 overflow-hidden rounded-xl border px-0.5 py-2.5 text-center transition sm:px-1 ${
-                            selected
-                              ? "border-[#8b5e3c] bg-[#8b5e3c] text-white shadow-sm shadow-[#8b5e3c]/20"
-                              : "border-[#d1ad93] bg-white text-[#9a6a49] hover:border-[#8b5e3c] hover:bg-[#f6eee7] hover:text-[#6f452d]"
-                          }`}
-                        >
-                          <span className="block whitespace-nowrap text-[12px] font-bold leading-tight sm:text-sm">{formatDayMonth(day)}</span>
-                          <span className="mt-1 block whitespace-nowrap text-[11px] font-semibold leading-tight">{formatShortWeekday(day)}</span>
-                        </button>
-                      );
-                    })}
+                    <div className="grid min-w-0 grid-cols-3 gap-1.5 sm:grid-cols-6">
+                      {visibleDays.map((day) => {
+                        const value = toDateInput(day);
+                        const selected = date === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setDate(value)}
+                            className={`min-w-0 rounded-xl border px-1 py-2 text-center transition sm:py-2.5 ${
+                              selected
+                                ? "border-[#8b5e3c] bg-[#8b5e3c] text-white shadow-sm shadow-[#8b5e3c]/20"
+                                : "border-[#d1ad93] bg-white text-[#9a6a49] hover:border-[#8b5e3c] hover:bg-[#f6eee7] hover:text-[#6f452d]"
+                            }`}
+                          >
+                            <span className="block whitespace-nowrap text-sm font-bold leading-tight">{formatDayMonth(day)}</span>
+                            <span className="mt-1 block whitespace-nowrap text-[11px] font-semibold leading-tight">{formatShortWeekday(day)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
 
                     <button
                       type="button"
-                      onClick={() => setDateOffset((current) => current + 5)}
+                      onClick={() => setDateOffset((current) => current + 6)}
                       aria-label="Ver próximos dias"
                       className="flex items-center justify-center rounded-xl border border-[#ead8ca] bg-white text-lg leading-none text-[#b58c70] transition hover:border-[#8b5e3c] hover:text-[#8b5e3c]"
                     >
